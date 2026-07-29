@@ -7,6 +7,14 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.http import JsonResponse
 from .models import Document, Conversation, ChatMessage
+from .utils import (
+    process_document,
+    generate_document_summary,
+    retrieve_relevant_chunks,
+    generate_answer,
+    generate_quiz_questions,
+    generate_cheat_sheet
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,19 +95,13 @@ def documents_view(request):
 
 @login_required
 def upload_document(request):
-    """
-    PDF upload karo aur RAG ingestion pipeline run karo.
-
-    Flow:
-    Validate → Save Document → Process (Extract + Chunk + Vectorize) → Redirect
-    """
+    """PDF upload karo aur RAG ingestion pipeline run karo."""
     if request.method != 'POST':
         return redirect('documents')
 
     title = request.POST.get('title', '').strip()
     pdf_file = request.FILES.get('pdf_file')
 
-    # Validation
     errors = []
     if not title:
         errors.append('Please provide a document title.')
@@ -118,9 +120,6 @@ def upload_document(request):
             messages.error(request, error)
         return redirect('documents')
 
-    # Save document to DB (file save to media/documents/)
-    from .utils import process_document, generate_document_summary
-
     document = Document.objects.create(
         user=request.user,
         title=title,
@@ -128,32 +127,27 @@ def upload_document(request):
         file_size=pdf_file.size,
     )
 
-    # RAG Ingestion Pipeline run karo
-    # Note: pdf_file ka pointer reset karo (already read by Django)
     document.pdf_file.open('rb')
     success = process_document(document, document.pdf_file)
     document.pdf_file.close()
 
     if success:
-        # Auto-generate summary
         try:
             document.summary = generate_document_summary(document.full_text)
             document.save()
         except Exception:
-            pass  # Summary optional hai — fail hua toh chalega
+            pass
 
         messages.success(
             request,
             f'✅ "{title}" processed successfully! '
-            f'{document.total_chunks} chunks created. '
-            f'Ready to chat!'
+            f'{document.total_chunks} chunks created. Ready to chat & generate quiz!'
         )
     else:
-        document.delete()  # Failed processing → delete partial data
+        document.delete()
         messages.error(
             request,
-            'Could not process the PDF. Make sure it is a text-based PDF '
-            '(not a scanned image). Try converting it to PDF/A format.'
+            'Could not process the PDF. Make sure it is a text-based PDF.'
         )
 
     return redirect('documents')
@@ -174,26 +168,16 @@ def delete_document(request, pk):
 
 @login_required
 def chat_view(request, doc_id):
-    """
-    Document ke saath chat karo.
-
-    GET: Chat UI dikhao with conversation history
-    POST (AJAX): Question process karo, answer return karo
-    """
-    from .utils import retrieve_relevant_chunks, generate_answer
-
+    """Document ke saath chat interface."""
     document = get_object_or_404(Document, pk=doc_id, user=request.user)
 
-    # GET request — Chat page dikhao
     if request.method == 'GET':
-        # Is document ke liye conversation dhundo ya banao
         conversation, created = Conversation.objects.get_or_create(
             user=request.user,
             document=document,
             defaults={'title': f"Chat about {document.title[:30]}"}
         )
 
-        # Is document ki SARI conversations lao (sidebar ke liye)
         all_conversations = Conversation.objects.filter(
             user=request.user,
             document=document,
@@ -209,7 +193,6 @@ def chat_view(request, doc_id):
             'active_conv_id': conversation.id,
         })
 
-    # POST request — Question ka answer do
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
@@ -220,57 +203,40 @@ def chat_view(request, doc_id):
         if not question:
             return JsonResponse({'error': 'Question cannot be empty'}, status=400)
 
-        if len(question) > 1000:
-            return JsonResponse({'error': 'Question too long (max 1000 chars)'}, status=400)
-
-        # Conversation find karo
         conversation, _ = Conversation.objects.get_or_create(
             user=request.user,
             document=document,
             defaults={'title': f"Chat about {document.title[:30]}"}
         )
 
-        # User ka question save karo
         user_message = ChatMessage.objects.create(
             conversation=conversation,
             role='user',
             content=question,
         )
 
-        # Step 1: Relevant chunks retrieve karo
         relevant_chunks = retrieve_relevant_chunks(document, question, top_k=4)
 
-        # Step 2: Conversation history (for multi-turn context)
         history = [
             {'role': m.role, 'content': m.content}
             for m in conversation.messages.exclude(pk=user_message.pk).order_by('-timestamp')[:8]
         ]
         history.reverse()
 
-        # Step 3: Gemini se answer generate karo (with graceful degradation)
         try:
             answer = generate_answer(question, relevant_chunks, history)
         except Exception as e:
             logger.error(f"Answer generation failed: {e}")
-            if relevant_chunks:
-                answer = (
-                    "⚠️ AI is temporarily unavailable. "
-                    "Here are the most relevant passages from your document:\n\n"
-                    + "\n\n---\n\n".join(relevant_chunks[:2])
-                )
-            else:
-                answer = "⚠️ Could not find relevant information or generate an answer. Please try rephrasing your question."
+            answer = "⚠️ Could not generate an answer. Please try rephrasing your question."
 
-        # Step 4: AI answer save karo
         ai_message = ChatMessage.objects.create(
             conversation=conversation,
             role='assistant',
             content=answer,
-            retrieved_chunks=relevant_chunks[:2],  # Store first 2 chunks for reference
+            retrieved_chunks=relevant_chunks[:2],
         )
 
-        # Update conversation timestamp
-        conversation.save()  # auto_now on updated_at triggers
+        conversation.save()
 
         return JsonResponse({
             'answer': answer,
@@ -281,16 +247,11 @@ def chat_view(request, doc_id):
     return JsonResponse({'error': 'Method not allowed'}, status=405)
 
 
-# ─────────────────────────────────────────
-# MULTI-CONVERSATION VIEWS
-# ─────────────────────────────────────────
-
 @login_required
 def new_conversation(request, doc_id):
     """Naya conversation start karo same document pe."""
     document = get_object_or_404(Document, pk=doc_id, user=request.user)
 
-    # Count existing conversations for auto-naming
     count = Conversation.objects.filter(
         user=request.user,
         document=document
@@ -308,21 +269,13 @@ def new_conversation(request, doc_id):
 
 @login_required
 def chat_conversation_view(request, doc_id, conv_id):
-    """
-    Specific conversation ke saath chat karo.
-
-    GET: Chat UI with THIS conversation's messages
-    POST: AJAX question → answer
-    """
-    from .utils import retrieve_relevant_chunks, generate_answer
-
+    """Specific conversation ke saath chat karo."""
     document = get_object_or_404(Document, pk=doc_id, user=request.user)
     conversation = get_object_or_404(
         Conversation, pk=conv_id, user=request.user, document=document
     )
 
     if request.method == 'GET':
-        # Is document ki SARI conversations lao (sidebar ke liye)
         all_conversations = Conversation.objects.filter(
             user=request.user,
             document=document,
@@ -338,7 +291,6 @@ def chat_conversation_view(request, doc_id, conv_id):
             'active_conv_id': conversation.id,
         })
 
-    # POST — AJAX
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
@@ -349,41 +301,26 @@ def chat_conversation_view(request, doc_id, conv_id):
         if not question:
             return JsonResponse({'error': 'Question cannot be empty'}, status=400)
 
-        if len(question) > 1000:
-            return JsonResponse({'error': 'Question too long'}, status=400)
-
-        # Save user message
         user_msg = ChatMessage.objects.create(
             conversation=conversation,
             role='user',
             content=question,
         )
 
-        # Retrieve relevant chunks
         relevant_chunks = retrieve_relevant_chunks(document, question, top_k=4)
 
-        # Conversation history
         history = [
             {'role': m.role, 'content': m.content}
             for m in conversation.messages.exclude(pk=user_msg.pk).order_by('-timestamp')[:8]
         ]
         history.reverse()
 
-        # Generate answer with graceful degradation
         try:
             answer = generate_answer(question, relevant_chunks, history)
         except Exception as e:
             logger.error(f"Answer generation failed: {e}")
-            if relevant_chunks:
-                answer = (
-                    "⚠️ AI is temporarily unavailable. "
-                    "Here are the most relevant passages from your document:\n\n"
-                    + "\n\n---\n\n".join(relevant_chunks[:2])
-                )
-            else:
-                answer = "⚠️ Could not generate an answer. Please try rephrasing."
+            answer = "⚠️ Could not generate an answer. Please try rephrasing."
 
-        # Save AI message
         ai_msg = ChatMessage.objects.create(
             conversation=conversation,
             role='assistant',
@@ -391,7 +328,6 @@ def chat_conversation_view(request, doc_id, conv_id):
             retrieved_chunks=relevant_chunks[:2],
         )
 
-        # Update conversation timestamp
         conversation.save()
 
         return JsonResponse({
@@ -405,11 +341,11 @@ def chat_conversation_view(request, doc_id, conv_id):
 
 @login_required
 def delete_conversation(request, doc_id, conv_id):
-    """Conversation delete karo — messages bhi cascade delete hongi."""
+    """Conversation delete karo."""
     conversation = get_object_or_404(
         Conversation, pk=conv_id, user=request.user, document_id=doc_id
     )
-    conversation.delete()  # on_delete=CASCADE → messages bhi delete
+    conversation.delete()
     messages.success(request, 'Conversation deleted.')
     return redirect('chat', doc_id=doc_id)
 
@@ -436,3 +372,30 @@ def rename_conversation(request, doc_id, conv_id):
     conversation.save()
 
     return JsonResponse({'success': True, 'title': new_title})
+
+
+# ─────────────────────────────────────────
+# ACTIVE LEARNING: QUIZ & CHEAT SHEET VIEWS
+# ─────────────────────────────────────────
+
+@login_required
+def generate_quiz_view(request, doc_id):
+    """
+    Returns 5 MCQs generated from document content for interactive testing.
+    """
+    document = get_object_or_404(Document, pk=doc_id, user=request.user)
+    quiz_data = generate_quiz_questions(document)
+    return JsonResponse({'questions': quiz_data, 'title': document.title})
+
+
+@login_required
+def cheat_sheet_view(request, doc_id):
+    """
+    Renders print-ready Revision Cheat Sheet & Study Notes page.
+    """
+    document = get_object_or_404(Document, pk=doc_id, user=request.user)
+    sheet_data = generate_cheat_sheet(document)
+    return render(request, 'cheat_sheet.html', {
+        'document': document,
+        'sheet': sheet_data
+    })

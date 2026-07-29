@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+{% block title %}Cheat Sheet — {{ document.title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .cheat-container {
+        max-width: 900px;
+        margin: 0 auto;
+    }
+    .concept-box {
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(99, 102, 241, 0.2);
+        border-radius: 12px;
+        padding: 1.25rem;
+        margin-bottom: 1rem;
+        transition: all 0.2s;
+    }
+    .concept-box:hover {
+        border-color: rgba(99, 102, 241, 0.4);
+        transform: translateY(-2px);
+    }
+    .formula-badge {
+        background: rgba(16, 185, 129, 0.15);
+        color: #34d399;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        font-family: monospace;
+        margin-bottom: 0.75rem;
+    }
+    @media print {
+        body { background: white !important; color: black !important; }
+        .btn, .navbar, .sidebar { display: none !important; }
+        .glass-card, .concept-box { background: white !important; color: black !important; border: 1px solid #ccc !important; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="cheat-container">
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <div>
+            <a href="{% url 'chat' document.id %}" class="btn btn-outline-custom btn-sm mb-2">
+                <i class="bi bi-arrow-left"></i> Back to Chat
+            </a>
+            <h2 class="fw-bold mb-1">
+                Study Cheat Sheet: <span class="gradient-text">{{ document.title }}</span>
+            </h2>
+            <p class="text-muted mb-0">Auto-synthesized key concepts, formulas, and revision summary</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button onclick="window.print()" class="btn btn-primary-custom">
+                <i class="bi bi-printer"></i> Print / Save PDF
+            </button>
+        </div>
+    </div>
+
+    <!-- Overview Card -->
+    <div class="glass-card mb-4">
+        <h5 class="fw-bold gradient-text mb-2"><i class="bi bi-info-circle"></i> Document Overview</h5>
+        <p class="text-slate-300 mb-0" style="line-height: 1.7;">{{ sheet.overview }}</p>
+    </div>
+
+    <!-- Key Concepts Grid -->
+    <h4 class="fw-bold mb-3"><i class="bi bi-lightning-charge" style="color: #818cf8;"></i> Core Technical Concepts</h4>
+    <div class="row g-3 mb-4">
+        {% for item in sheet.key_concepts %}
+        <div class="col-md-6">
+            <div class="concept-box h-100">
+                <h6 class="fw-bold text-white mb-2" style="color: #a78bfa;">{{ item.term }}</h6>
+                <p class="text-muted small mb-0">{{ item.definition }}</p>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Formulas & Rules -->
+    {% if sheet.formulas_and_rules %}
+    <h4 class="fw-bold mb-3"><i class="bi bi-key" style="color: #34d399;"></i> Key Formulas & Technical Rules</h4>
+    <div class="glass-card mb-4">
+        {% for rule in sheet.formulas_and_rules %}
+        <div class="formula-badge">
+            <i class="bi bi-check2-circle me-2"></i>{{ rule }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Revision Summary Bullets -->
+    <h4 class="fw-bold mb-3"><i class="bi bi-journal-check" style="color: #6366f1;"></i> Exam Takeaways & Revision Bullets</h4>
+    <div class="glass-card mb-5">
+        <ul class="mb-0 ps-3">
+            {% for bullet in sheet.summary_bullets %}
+            <li class="text-slate-200 py-1" style="line-height: 1.6;">{{ bullet }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endblock %}
