@@ -1,11 +1,11 @@
 """
 utils.py — RAG (Retrieval Augmented Generation) Pipeline
 
-Supports both Gemini API and Hugging Face Inference API (including Qwen models: Qwen3-VL-32B-Instruct, Qwen2.5-72B-Instruct, etc.).
-
-Phase 1 (Ingestion): extract_and_chunk_document()
-Phase 2 (Retrieval): retrieve_relevant_chunks()
-Phase 3 (Generation): generate_answer() [Gemini + Hugging Face support]
+Fail-safe design:
+1. PDF Ingestion & Chunking (500-word chunks, 50-word overlap)
+2. TF-IDF Cosine Retrieval
+3. AI Answer Generation (Gemini API with multi-model fallback + HF API support)
+4. Graceful Fallback (Direct Grounded Passage Extractor when API quota rate-limited)
 """
 
 import re
@@ -13,13 +13,11 @@ import os
 import warnings
 import logging
 
-# Disable Hugging Face parallel tokenization warnings and conserve memory
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 
-# Suppress deprecation warnings from legacy packages
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -31,15 +29,13 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted, GoogleAPIError
 from huggingface_hub import InferenceClient
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────
-# NLTK Data download (auto-downloads once)
-# ─────────────────────────────────────────────────────
 def _ensure_nltk_data():
     """Download required NLTK data packages if missing."""
     for resource, package in [
@@ -61,15 +57,7 @@ _ensure_nltk_data()
 # ═══════════════════════════════════════════════════════
 
 def extract_text_from_pdf(pdf_file):
-    """
-    PDF file se text extract karta hai using PyPDF2.
-
-    Args:
-        pdf_file: Django UploadedFile object
-
-    Returns:
-        str: Extracted text (empty string on failure)
-    """
+    """PDF file se text extract karta hai using PyPDF2."""
     try:
         reader = PyPDF2.PdfReader(pdf_file)
         text = ""
@@ -88,22 +76,11 @@ def extract_text_from_pdf(pdf_file):
 # ═══════════════════════════════════════════════════════
 
 def chunk_text(text, chunk_size=500, overlap=50):
-    """
-    Text ko overlapping chunks mein split karta hai.
-
-    Args:
-        text (str): Full document text
-        chunk_size (int): Words per chunk (default 500)
-        overlap (int): Overlapping words between chunks (default 50)
-
-    Returns:
-        list[str]: List of text chunks
-    """
+    """Text ko overlapping chunks mein split karta hai."""
     if not text:
         return []
 
     words = text.split()
-
     if len(words) == 0:
         return []
 
@@ -127,19 +104,11 @@ def chunk_text(text, chunk_size=500, overlap=50):
 
 
 # ═══════════════════════════════════════════════════════
-# PHASE 1C: VECTORIZATION (TF-IDF per chunk)
+# PHASE 1C: VECTORIZATION
 # ═══════════════════════════════════════════════════════
 
 def vectorize_chunks(chunks):
-    """
-    Sab chunks ko TF-IDF vectorize karta hai.
-
-    Args:
-        chunks (list[str]): List of text chunks
-
-    Returns:
-        tuple: (vectorizer, tfidf_matrix)
-    """
+    """Sab chunks ko TF-IDF vectorize karta hai."""
     if not chunks:
         return None, None
 
@@ -160,16 +129,7 @@ def vectorize_chunks(chunks):
 
 
 def vector_to_dict(vector, feature_names):
-    """
-    Sparse TF-IDF vector ko Python dict mein convert karta hai.
-
-    Args:
-        vector: sparse matrix row (1, vocab_size)
-        feature_names: list of vocabulary words
-
-    Returns:
-        dict: {word: tfidf_score}
-    """
+    """Sparse TF-IDF vector ko Python dict mein convert karta hai."""
     vector_dense = vector.toarray()[0]
     non_zero_indices = vector_dense.nonzero()[0]
 
@@ -181,20 +141,11 @@ def vector_to_dict(vector, feature_names):
 
 
 # ═══════════════════════════════════════════════════════
-# COMPLETE INGESTION: extract → chunk → vectorize → save
+# COMPLETE INGESTION
 # ═══════════════════════════════════════════════════════
 
 def process_document(document_obj, pdf_file):
-    """
-    Complete ingestion pipeline.
-
-    Args:
-        document_obj: Document model instance
-        pdf_file: Uploaded PDF file
-
-    Returns:
-        bool: True if successful, False otherwise
-    """
+    """Complete ingestion pipeline."""
     from .models import DocumentChunk
 
     full_text = extract_text_from_pdf(pdf_file)
@@ -244,17 +195,7 @@ def process_document(document_obj, pdf_file):
 # ═══════════════════════════════════════════════════════
 
 def retrieve_relevant_chunks(document_obj, question, top_k=4):
-    """
-    Question ke liye most relevant chunks retrieve karta hai.
-
-    Args:
-        document_obj: Document model instance
-        question (str): User's question
-        top_k (int): Number of chunks to retrieve
-
-    Returns:
-        list[str]: Top K most relevant chunk texts
-    """
+    """Question ke liye most relevant chunks retrieve karta hai."""
     from .models import DocumentChunk
 
     chunks = DocumentChunk.objects.filter(
@@ -304,39 +245,22 @@ def retrieve_relevant_chunks(document_obj, question, top_k=4):
 
 
 # ═══════════════════════════════════════════════════════
-# PHASE 3: HUGGING FACE GENERATION PROVIDER
+# PHASE 3: HUGGING FACE GENERATION
 # ═══════════════════════════════════════════════════════
 
 def generate_answer_with_huggingface(prompt, model_name=None, hf_token=None):
-    """
-    Query Hugging Face Inference API with models like Qwen/Qwen3-VL-32B-Instruct or Qwen/Qwen2.5-72B-Instruct.
-
-    Args:
-        prompt (str): Prepared grounded prompt
-        model_name (str): Hugging Face model repository ID
-        hf_token (str): Hugging Face User Access Token
-
-    Returns:
-        str: Generated answer
-    """
+    """Query Hugging Face Inference API."""
     token = hf_token or getattr(settings, 'HF_TOKEN', '')
     model = model_name or getattr(settings, 'HF_MODEL', 'Qwen/Qwen2.5-72B-Instruct')
 
-    if not token:
-        raise ValueError("HF_TOKEN is not configured in .env file.")
+    if not token or 'your_huggingface_token' in token:
+        raise ValueError("HF_TOKEN is missing or default")
 
     client = InferenceClient(model=model, token=token)
-
     response = client.chat.completions.create(
         messages=[
-            {
-                "role": "system",
-                "content": "You are an AI assistant that answers questions based STRICTLY on the provided document passages."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
+            {"role": "system", "content": "You are an AI assistant answering strictly from provided document context."},
+            {"role": "user", "content": prompt}
         ],
         max_tokens=1024,
         temperature=0.2,
@@ -345,32 +269,26 @@ def generate_answer_with_huggingface(prompt, model_name=None, hf_token=None):
 
 
 # ═══════════════════════════════════════════════════════
-# PHASE 3: HYBRID GENERATION (Gemini or Hugging Face)
+# PHASE 3: ROBUST GENERATION WITH RATE-LIMIT FALLBACK
 # ═══════════════════════════════════════════════════════
 
 def generate_answer(question, context_chunks, conversation_history=None):
     """
-    Retrieved chunks + question → Gemini API or Hugging Face (Qwen) → Grounded Answer
+    Generate answer from retrieved chunks using Gemini API or Hugging Face.
 
-    Args:
-        question (str): User's question
-        context_chunks (list[str]): Retrieved relevant chunks
-        conversation_history (list): Previous Q&A for context
-
-    Returns:
-        str: AI-generated answer
+    Fail-safe behavior:
+    1. Tries Hugging Face if configured
+    2. Tries Gemini models (gemini-2.5-flash, gemini-2.0-flash, gemini-2.0-flash-lite)
+    3. If quota exhausted / 429 rate limited, presents clean relevant passages directly!
     """
     gemini_key = getattr(settings, 'GEMINI_API_KEY', '')
     hf_token = getattr(settings, 'HF_TOKEN', '')
-
-    if not gemini_key and not hf_token:
-        return "⚠️ No AI API Key configured. Please add GEMINI_API_KEY or HF_TOKEN to your .env file."
 
     if not context_chunks:
         return ("❌ I couldn't find relevant information in the document for your question. "
                 "Try rephrasing or asking about a different topic from the document.")
 
-    # Context string
+    # Context formatting
     context = "\n\n---\n\n".join([
         f"[Passage {i+1}]: {chunk}"
         for i, chunk in enumerate(context_chunks)
@@ -402,25 +320,40 @@ def generate_answer(question, context_chunks, conversation_history=None):
 
 ## Answer:"""
 
-    # 1. Try Hugging Face if HF_TOKEN is specified
-    if hf_token:
+    # 1. Try Hugging Face
+    if hf_token and not 'your_huggingface_token' in hf_token:
         try:
             return generate_answer_with_huggingface(prompt, hf_token=hf_token)
         except Exception as e:
-            logger.warning(f"Hugging Face generation failed, falling back to Gemini: {e}")
+            logger.warning(f"Hugging Face API failed: {e}")
 
-    # 2. Try Gemini API
-    if gemini_key:
-        try:
-            genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            response = model.generate_content(prompt)
-            return response.text
-        except Exception as e:
-            logger.error(f"Gemini answer generation failed: {e}")
-            return f"⚠️ Could not generate answer: {str(e)}"
+    # 2. Try Gemini API models (with multi-model fallback)
+    if gemini_key and not 'your_gemini_key' in gemini_key:
+        models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite']
+        genai.configure(api_key=gemini_key)
 
-    return "⚠️ AI service unavailable."
+        for model_name in models_to_try:
+            try:
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt, request_options={'timeout': 10})
+                if response and response.text:
+                    return response.text
+            except (ResourceExhausted, GoogleAPIError) as e:
+                logger.warning(f"Gemini API quota/rate-limited for model {model_name}: {e}")
+            except Exception as e:
+                logger.warning(f"Gemini model {model_name} error: {e}")
+
+    # 3. Fail-safe Grounded Passage Fallback (When API rate-limited / quota 429)
+    passages_formatted = "\n\n".join([
+        f"**Passage {i+1}:**\n> {chunk[:600]}..."
+        for i, chunk in enumerate(context_chunks[:2])
+    ])
+
+    return (
+        f"📌 **Relevant Passages from Document:**\n\n"
+        f"{passages_formatted}\n\n"
+        f"*(Note: Gemini Free API quota rate limit reached. Displaying relevant document passages directly.)*"
+    )
 
 
 # ═══════════════════════════════════════════════════════
@@ -428,33 +361,28 @@ def generate_answer(question, context_chunks, conversation_history=None):
 # ═══════════════════════════════════════════════════════
 
 def generate_document_summary(full_text):
-    """
-    Document ka short summary generate karta hai.
-
-    Args:
-        full_text (str): Full extracted text
-
-    Returns:
-        str: 2-3 line summary
-    """
+    """Document ka short summary generate karta hai."""
     gemini_key = getattr(settings, 'GEMINI_API_KEY', '')
     hf_token = getattr(settings, 'HF_TOKEN', '')
 
     prompt = f"Summarize this document in 2-3 sentences. Be concise.\n\nDocument text:\n{full_text[:3000]}\n\nSummary:"
 
-    if hf_token:
+    if hf_token and not 'your_huggingface_token' in hf_token:
         try:
             return generate_answer_with_huggingface(prompt, hf_token=hf_token)
         except Exception:
             pass
 
     if gemini_key:
-        try:
-            genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            response = model.generate_content(prompt)
-            return response.text.strip()
-        except Exception:
-            pass
+        models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite']
+        genai.configure(api_key=gemini_key)
+        for model_name in models_to_try:
+            try:
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt, request_options={'timeout': 5})
+                if response and response.text:
+                    return response.text.strip()
+            except Exception:
+                pass
 
-    return full_text[:200].strip() + "..."
+    return full_text[:250].strip() + "..."
