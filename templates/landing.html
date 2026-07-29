@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+
+{% block title %}DocuChat AI — Chat with your PDFs using RAG{% endblock %}
+
+{% block content %}
+<div class="row align-items-center py-5" style="min-height: 70vh;">
+    <div class="col-lg-6">
+        <span class="badge px-3 py-2 mb-3" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3);">
+            ⚡ RAG (Retrieval Augmented Generation) Powered
+        </span>
+        <h1 class="display-4 fw-bold mb-4" style="line-height: 1.15;">
+            Chat with your <span class="gradient-text">Documents</span> using AI
+        </h1>
+        <p class="lead text-muted mb-4" style="font-size: 1.1rem; line-height: 1.7;">
+            Upload any PDF — study notes, research papers, textbooks, or manuals.
+            Ask questions in natural language. Get accurate answers grounded directly in your document using RAG.
+        </p>
+        <div class="d-flex gap-3 flex-wrap">
+            <a href="{% url 'register' %}" class="btn btn-primary-custom btn-lg px-4">
+                <i class="bi bi-rocket-takeoff"></i> Get Started Free
+            </a>
+            <a href="{% url 'login' %}" class="btn btn-outline-custom btn-lg px-4">
+                <i class="bi bi-box-arrow-in-right"></i> Login
+            </a>
+        </div>
+        <div class="mt-4 pt-2 d-flex gap-4">
+            <div class="text-center">
+                <h4 class="gradient-text fw-bold mb-0">RAG</h4>
+                <small class="text-muted">Architecture</small>
+            </div>
+            <div class="text-center">
+                <h4 class="gradient-text fw-bold mb-0">Gemini</h4>
+                <small class="text-muted">AI Powered</small>
+            </div>
+            <div class="text-center">
+                <h4 class="gradient-text fw-bold mb-0">100%</h4>
+                <small class="text-muted">Grounded Answers</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6 mt-5 mt-lg-0 text-center">
+        <div class="glass-card text-start">
+            <div class="d-flex align-items-center gap-2 mb-3 pb-2 border-bottom border-secondary border-opacity-25">
+                <i class="bi bi-file-earmark-pdf-fill fs-4" style="color: #818cf8;"></i>
+                <div>
+                    <h6 class="mb-0 fw-bold">machine_learning_notes.pdf</h6>
+                    <small class="text-muted">500-word Chunks • TF-IDF Vectorized</small>
+                </div>
+            </div>
+            <div class="d-flex flex-column gap-3">
+                <div style="background: rgba(99, 102, 241, 0.1); border-radius: 12px; padding: 14px; border: 1px solid rgba(99, 102, 241, 0.2);">
+                    <small style="color: #818cf8;" class="fw-semibold"><i class="bi bi-person"></i> You</small>
+                    <p class="mb-0 mt-1" style="font-size: 0.95rem;">What does chapter 3 say about backpropagation?</p>
+                </div>
+                <div style="background: rgba(15, 23, 42, 0.85); border-radius: 12px; padding: 14px; border: 1px solid #1e293b;">
+                    <small class="gradient-text fw-bold"><i class="bi bi-robot"></i> DocuChat AI (from your notes)</small>
+                    <p class="mb-0 mt-1 text-slate-300" style="font-size: 0.9rem; line-height: 1.6;">
+                        Based on Chunk #4 of your notes: Backpropagation calculates the gradient of the loss function with respect to each weight using the chain rule, enabling efficient neural network optimization...
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

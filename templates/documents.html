@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+{% block title %}My Documents — DocuChat AI{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold">My Documents <span class="gradient-text">📚</span></h2>
+        <p class="text-muted mb-0">{{ total }} document{{ total|pluralize }}</p>
+    </div>
+    <button class="btn btn-primary-custom" data-bs-toggle="modal" data-bs-target="#uploadModal">
+        <i class="bi bi-cloud-upload"></i> Upload PDF
+    </button>
+</div>
+
+{% if documents %}
+<div class="row g-4">
+    {% for doc in documents %}
+    <div class="col-md-6 col-lg-4">
+        <div class="glass-card h-100">
+            <div class="d-flex align-items-start gap-3 mb-3">
+                <div style="font-size: 2.5rem;">📄</div>
+                <div class="flex-grow-1">
+                    <h6 class="mb-1 fw-semibold">{{ doc.title }}</h6>
+                    <small class="text-muted">
+                        {{ doc.total_chunks }} chunks · {{ doc.file_size_display }}
+                    </small>
+                </div>
+            </div>
+            {% if doc.summary %}
+            <p class="text-muted small mb-3" style="line-height: 1.5;">
+                {{ doc.summary|truncatechars:120 }}
+            </p>
+            {% endif %}
+            <p class="text-muted small mb-3">
+                Uploaded {{ doc.uploaded_at|date:"d M Y" }}
+            </p>
+            <div class="d-flex gap-2">
+                <a href="{% url 'chat' doc.id %}" class="btn btn-primary-custom flex-grow-1 btn-sm">
+                    <i class="bi bi-chat-dots"></i> Chat
+                </a>
+                <a href="{% url 'delete_document' doc.id %}"
+                   class="btn btn-outline-danger btn-sm"
+                   onclick="return confirm('Delete this document and all conversations?')">
+                    <i class="bi bi-trash"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="glass-card text-center py-5">
+    <div style="font-size: 5rem; opacity: 0.3;">📂</div>
+    <h4 class="mt-3 text-muted">No documents yet</h4>
+    <p class="text-muted">Upload a PDF to start chatting with it!</p>
+    <button class="btn btn-primary-custom" data-bs-toggle="modal" data-bs-target="#uploadModal">
+        <i class="bi bi-cloud-upload"></i> Upload Your First PDF
+    </button>
+</div>
+{% endif %}
+
+<!-- Upload Modal -->
+<div class="modal fade" id="uploadModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content" style="background: #0f172a; border: 1px solid rgba(99,102,241,0.2);">
+            <div class="modal-header" style="border-color: rgba(99,102,241,0.2);">
+                <h5 class="modal-title gradient-text">Upload PDF Document</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{% url 'upload_document' %}" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Document Title</label>
+                        <input type="text" class="form-control" name="title"
+                               placeholder="e.g., Machine Learning Notes" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">PDF File</label>
+                        <input type="file" class="form-control" name="pdf_file"
+                               accept=".pdf" required>
+                        <div class="form-text text-muted">Max 10MB. Text-based PDF recommended.</div>
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-color: rgba(99,102,241,0.2);">
+                    <button type="button" class="btn btn-outline-custom" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary-custom">
+                        <i class="bi bi-cloud-upload"></i> Upload & Process
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
