@@ -215,13 +215,13 @@ def chat_view(request, doc_id):
             content=question,
         )
 
-        relevant_chunks = retrieve_relevant_chunks(document, question, top_k=4)
-
         history = [
             {'role': m.role, 'content': m.content}
             for m in conversation.messages.exclude(pk=user_message.pk).order_by('-timestamp')[:8]
         ]
         history.reverse()
+
+        relevant_chunks = retrieve_relevant_chunks(document, question, conversation_history=history, top_k=4)
 
         try:
             answer = generate_answer(question, relevant_chunks, history)
@@ -307,13 +307,13 @@ def chat_conversation_view(request, doc_id, conv_id):
             content=question,
         )
 
-        relevant_chunks = retrieve_relevant_chunks(document, question, top_k=4)
-
         history = [
             {'role': m.role, 'content': m.content}
             for m in conversation.messages.exclude(pk=user_msg.pk).order_by('-timestamp')[:8]
         ]
         history.reverse()
+
+        relevant_chunks = retrieve_relevant_chunks(document, question, conversation_history=history, top_k=4)
 
         try:
             answer = generate_answer(question, relevant_chunks, history)
@@ -375,14 +375,12 @@ def rename_conversation(request, doc_id, conv_id):
 
 
 # ─────────────────────────────────────────
-# ACTIVE LEARNING: QUIZ & CHEAT SHEET VIEWS
+# ACTIVE LEARNING VIEWS
 # ─────────────────────────────────────────
 
 @login_required
 def generate_quiz_view(request, doc_id):
-    """
-    Returns 5 MCQs generated from document content for interactive testing.
-    """
+    """Returns 5 MCQs generated from document content."""
     document = get_object_or_404(Document, pk=doc_id, user=request.user)
     quiz_data = generate_quiz_questions(document)
     return JsonResponse({'questions': quiz_data, 'title': document.title})
@@ -390,9 +388,7 @@ def generate_quiz_view(request, doc_id):
 
 @login_required
 def cheat_sheet_view(request, doc_id):
-    """
-    Renders print-ready Revision Cheat Sheet & Study Notes page.
-    """
+    """Renders print-ready Revision Cheat Sheet & Study Notes page."""
     document = get_object_or_404(Document, pk=doc_id, user=request.user)
     sheet_data = generate_cheat_sheet(document)
     return render(request, 'cheat_sheet.html', {
