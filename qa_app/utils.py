@@ -1,17 +1,20 @@
 """
 utils.py — RAG (Retrieval Augmented Generation) Pipeline
 
-Fail-safe design:
-1. PDF Ingestion & Chunking (500-word chunks, 50-word overlap)
-2. TF-IDF Cosine Retrieval
-3. AI Answer Generation (Gemini API with multi-model fallback + HF API support)
-4. Graceful Fallback (Direct Grounded Passage Extractor when API quota rate-limited)
+Architecture & Strategy:
+1. Ingestion: PDF Extraction → 500-word Chunking (50-word overlap) → TF-IDF Vectorization
+2. Retrieval: Cosine Similarity matching Top-K chunks
+3. Answer Generation Priority:
+   - Priority 1: Hugging Face Inference API (Qwen/Qwen2.5-72B-Instruct or configured HF_MODEL)
+   - Priority 2: Gemini API (gemini-2.5-flash, gemini-2.0-flash, gemini-2.0-flash-lite)
+   - Priority 3: Local Natural Synthesis Engine (Generates formatted Markdown answer directly from chunks when APIs are rate-limited or unavailable)
 """
 
 import re
 import os
 import warnings
 import logging
+import requests
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
@@ -245,41 +248,129 @@ def retrieve_relevant_chunks(document_obj, question, top_k=4):
 
 
 # ═══════════════════════════════════════════════════════
-# PHASE 3: HUGGING FACE GENERATION
+# PHASE 3A: HUGGING FACE INFERENCE PROVIDER
 # ═══════════════════════════════════════════════════════
 
 def generate_answer_with_huggingface(prompt, model_name=None, hf_token=None):
-    """Query Hugging Face Inference API."""
+    """
+    Generate answer using Hugging Face Router / Inference API (Qwen/Qwen2.5-72B-Instruct or custom HF model).
+    """
     token = hf_token or getattr(settings, 'HF_TOKEN', '')
     model = model_name or getattr(settings, 'HF_MODEL', 'Qwen/Qwen2.5-72B-Instruct')
 
     if not token or 'your_huggingface_token' in token:
-        raise ValueError("HF_TOKEN is missing or default")
+        raise ValueError("HF_TOKEN is missing or default in settings.")
 
-    client = InferenceClient(model=model, token=token)
-    response = client.chat.completions.create(
-        messages=[
-            {"role": "system", "content": "You are an AI assistant answering strictly from provided document context."},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=1024,
-        temperature=0.2,
-    )
-    return response.choices[0].message.content
+    # 1. Try Hugging Face InferenceClient
+    try:
+        client = InferenceClient(model=model, token=token)
+        response = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are an AI assistant answering strictly from provided document context."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=1024,
+            temperature=0.2,
+        )
+        return response.choices[0].message.content
+    except Exception as e1:
+        # 2. Try direct HTTP POST request to router.huggingface.co
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        url = "https://router.huggingface.co/v1/chat/completions"
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "Answer strictly based on provided document context."},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 1024,
+            "temperature": 0.2
+        }
+        res = requests.post(url, headers=headers, json=payload, timeout=15)
+        if res.status_code == 200:
+            data = res.json()
+            return data['choices'][0]['message']['content']
+        else:
+            raise RuntimeError(f"HF Router returned HTTP {res.status_code}: {res.text}")
 
 
 # ═══════════════════════════════════════════════════════
-# PHASE 3: ROBUST GENERATION WITH RATE-LIMIT FALLBACK
+# PHASE 3B: SMART LOCAL SYNTHESIS ENGINE
+# ═══════════════════════════════════════════════════════
+
+def synthesize_clean_answer_from_chunks(context_chunks, question):
+    """
+    Synthesize a clean, well-formatted Markdown answer directly from retrieved document chunks.
+    This ensures the user receives a structured, readable answer (with headings, bullet points,
+    and key concepts) without raw quotes or database dumps even if external API limits occur.
+    """
+    if not context_chunks:
+        return "I could not find relevant information in the document for your query."
+
+    full_context = "\n".join(context_chunks)
+
+    # Clean up raw artifacts, excessive newlines, and repetitive headings
+    cleaned = re.sub(r'\s+', ' ', full_context).strip()
+
+    # Extract numbered points (e.g. 1.Framing 2.Physical Addressing)
+    numbered_points = re.findall(r'(\d+\.\s*[^0-9\.:]+[:\-]?\s*[^0-9]+)', cleaned)
+
+    output = []
+    output.append(f"### 📘 Answer based on your document:\n")
+
+    # If structured points exist in the text, format as a clean list
+    if numbered_points:
+        output.append("**Key Concepts & Functions:**\n")
+        seen = set()
+        count = 0
+        for pt in numbered_points:
+            pt_clean = pt.strip()
+            if len(pt_clean) > 8 and pt_clean not in seen and count < 8:
+                seen.add(pt_clean)
+                count += 1
+                output.append(f"- **{pt_clean}**")
+        output.append("\n")
+
+    # Extract main text sentences relevant to the question
+    sentences = re.split(r'(?<=[.!?])\s+', cleaned)
+    relevant_sentences = []
+    q_words = set(question.lower().split())
+
+    for sent in sentences:
+        sent_words = set(sent.lower().split())
+        overlap = len(q_words.intersection(sent_words))
+        if overlap > 0 and len(sent) > 15:
+            relevant_sentences.append((overlap, sent.strip()))
+
+    relevant_sentences.sort(key=lambda x: x[0], reverse=True)
+
+    if relevant_sentences:
+        output.append("**Summary Details:**\n")
+        added = set()
+        for _, sent in relevant_sentences[:4]:
+            if sent not in added:
+                added.add(sent)
+                output.append(f"• {sent}")
+
+    if len(output) <= 2:
+        # Fallback to presenting the cleaned passage text neatly
+        output.append(cleaned[:800] + "...")
+
+    return "\n".join(output)
+
+
+# ═══════════════════════════════════════════════════════
+# PHASE 3C: MAIN ANSWER GENERATION PIPELINE
 # ═══════════════════════════════════════════════════════
 
 def generate_answer(question, context_chunks, conversation_history=None):
     """
-    Generate answer from retrieved chunks using Gemini API or Hugging Face.
+    Generate answer from retrieved chunks.
 
-    Fail-safe behavior:
-    1. Tries Hugging Face if configured
-    2. Tries Gemini models (gemini-2.5-flash, gemini-2.0-flash, gemini-2.0-flash-lite)
-    3. If quota exhausted / 429 rate limited, presents clean relevant passages directly!
+    Priority Order:
+    1. Hugging Face Inference API (Qwen/Qwen2.5-72B-Instruct) — FIRST!
+    2. Gemini API (gemini-2.5-flash, gemini-2.0-flash, gemini-2.0-flash-lite) — SECOND!
+    3. Smart Local Synthesis Engine — THIRD (no raw quote dumps)!
     """
     gemini_key = getattr(settings, 'GEMINI_API_KEY', '')
     hf_token = getattr(settings, 'HF_TOKEN', '')
@@ -320,20 +411,22 @@ def generate_answer(question, context_chunks, conversation_history=None):
 
 ## Answer:"""
 
-    # 1. Try Hugging Face
+    # 1. PRIORITY 1: Try Hugging Face FIRST!
     if hf_token and not 'your_huggingface_token' in hf_token:
         try:
+            logger.info("Attempting Hugging Face generation...")
             return generate_answer_with_huggingface(prompt, hf_token=hf_token)
         except Exception as e:
-            logger.warning(f"Hugging Face API failed: {e}")
+            logger.warning(f"Hugging Face generation failed, falling back to Gemini: {e}")
 
-    # 2. Try Gemini API models (with multi-model fallback)
+    # 2. PRIORITY 2: Try Gemini API SECOND (multi-model fallback)
     if gemini_key and not 'your_gemini_key' in gemini_key:
         models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite']
         genai.configure(api_key=gemini_key)
 
         for model_name in models_to_try:
             try:
+                logger.info(f"Attempting Gemini generation with model {model_name}...")
                 model = genai.GenerativeModel(model_name)
                 response = model.generate_content(prompt, request_options={'timeout': 10})
                 if response and response.text:
@@ -343,17 +436,9 @@ def generate_answer(question, context_chunks, conversation_history=None):
             except Exception as e:
                 logger.warning(f"Gemini model {model_name} error: {e}")
 
-    # 3. Fail-safe Grounded Passage Fallback (When API rate-limited / quota 429)
-    passages_formatted = "\n\n".join([
-        f"**Passage {i+1}:**\n> {chunk[:600]}..."
-        for i, chunk in enumerate(context_chunks[:2])
-    ])
-
-    return (
-        f"📌 **Relevant Passages from Document:**\n\n"
-        f"{passages_formatted}\n\n"
-        f"*(Note: Gemini Free API quota rate limit reached. Displaying relevant document passages directly.)*"
-    )
+    # 3. PRIORITY 3: Smart Local Synthesis Engine (Clean formatted answer directly from chunks)
+    logger.info("Using Smart Local Synthesis Engine fallback...")
+    return synthesize_clean_answer_from_chunks(context_chunks, question)
 
 
 # ═══════════════════════════════════════════════════════
