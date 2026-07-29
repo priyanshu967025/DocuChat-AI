@@ -10,6 +10,8 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+HF_TOKEN = os.getenv('HF_TOKEN', os.getenv('HUGGINGFACE_API_KEY', ''))
+HF_MODEL = os.getenv('HF_MODEL', 'Qwen/Qwen2.5-72B-Instruct')
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-702ptlzh56iva!=bh62_khian39vzi0_3%fgzoi#lj$a8!od*p')
 

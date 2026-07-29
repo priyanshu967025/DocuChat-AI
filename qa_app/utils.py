@@ -1,9 +1,11 @@
 """
 utils.py — RAG (Retrieval Augmented Generation) Pipeline
 
+Supports both Gemini API and Hugging Face Inference API (including Qwen models: Qwen3-VL-32B-Instruct, Qwen2.5-72B-Instruct, etc.).
+
 Phase 1 (Ingestion): extract_and_chunk_document()
 Phase 2 (Retrieval): retrieve_relevant_chunks()
-Phase 3 (Generation): generate_answer_with_gemini()
+Phase 3 (Generation): generate_answer() [Gemini + Hugging Face support]
 """
 
 import re
@@ -29,6 +31,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import google.generativeai as genai
+from huggingface_hub import InferenceClient
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -88,15 +91,6 @@ def chunk_text(text, chunk_size=500, overlap=50):
     """
     Text ko overlapping chunks mein split karta hai.
 
-    Algorithm:
-    ┌─────────────────────────────────────────────────────────┐
-    │  Chunk 0: words[0:500]                                  │
-    │  Chunk 1: words[450:950]   (50-word overlap!)           │
-    │  Chunk 2: words[900:1400]                               │
-    │  ...                                                     │
-    │  Step size = chunk_size - overlap = 500 - 50 = 450      │
-    └─────────────────────────────────────────────────────────┘
-
     Args:
         text (str): Full document text
         chunk_size (int): Words per chunk (default 500)
@@ -108,27 +102,24 @@ def chunk_text(text, chunk_size=500, overlap=50):
     if not text:
         return []
 
-    # Text ko words mein todo
     words = text.split()
 
     if len(words) == 0:
         return []
 
     chunks = []
-    step = chunk_size - overlap  # Next chunk ka start point
+    step = chunk_size - overlap
 
-    # Iterate through words with step
     for start in range(0, len(words), step):
         end = start + chunk_size
         chunk_words = words[start:end]
 
-        if len(chunk_words) < 30:  # Very short chunks skip karo
+        if len(chunk_words) < 30:
             break
 
         chunk_text_str = ' '.join(chunk_words)
         chunks.append(chunk_text_str)
 
-        # Agar yahi last chunk hai toh stop
         if end >= len(words):
             break
 
@@ -143,34 +134,21 @@ def vectorize_chunks(chunks):
     """
     Sab chunks ko TF-IDF vectorize karta hai.
 
-    Why vectorize ALL chunks together?
-    ─────────────────────────────────────
-    TF-IDF ko vocabulary chahiye — kaunse words exist karte hain?
-    IDF calculate karne ke liye N (total docs = total chunks) chahiye.
-
-    Isliye sabhi chunks ko ek saath fit_transform karte hain:
-    vectorizer.fit_transform(all_chunks)
-                 │
-                 ├── fit: vocabulary + IDF calculate karo
-                 └── transform: har chunk ka TF-IDF vector banao
-
     Args:
         chunks (list[str]): List of text chunks
 
     Returns:
         tuple: (vectorizer, tfidf_matrix)
-            - vectorizer: Fitted TfidfVectorizer (save for later use)
-            - tfidf_matrix: sparse matrix, shape (n_chunks, vocab_size)
     """
     if not chunks:
         return None, None
 
     vectorizer = TfidfVectorizer(
         stop_words='english',
-        max_features=3000,      # Top 3000 words vocabulary
-        ngram_range=(1, 2),     # Unigrams + Bigrams
-        min_df=1,               # Word must appear in at least 1 doc
-        sublinear_tf=True,      # log(1+tf) instead of tf — better for long docs
+        max_features=3000,
+        ngram_range=(1, 2),
+        min_df=1,
+        sublinear_tf=True,
     )
 
     try:
@@ -184,20 +162,13 @@ def vectorize_chunks(chunks):
 def vector_to_dict(vector, feature_names):
     """
     Sparse TF-IDF vector ko Python dict mein convert karta hai.
-    Database mein JSONField ke roop mein store hoga.
-
-    Example:
-    vector = [0, 0.8, 0, 0.3, 0, ...]   (sparse — mostly zeros)
-
-    dict = {"python": 0.8, "django": 0.3}
-           (sirf non-zero values store karo — efficient!)
 
     Args:
         vector: sparse matrix row (1, vocab_size)
         feature_names: list of vocabulary words
 
     Returns:
-        dict: {word: tfidf_score} (non-zero only)
+        dict: {word: tfidf_score}
     """
     vector_dense = vector.toarray()[0]
     non_zero_indices = vector_dense.nonzero()[0]
@@ -215,7 +186,7 @@ def vector_to_dict(vector, feature_names):
 
 def process_document(document_obj, pdf_file):
     """
-    Complete ingestion pipeline — ek function mein sab karo.
+    Complete ingestion pipeline.
 
     Args:
         document_obj: Document model instance
@@ -226,21 +197,18 @@ def process_document(document_obj, pdf_file):
     """
     from .models import DocumentChunk
 
-    # Step 1: Extract text
     full_text = extract_text_from_pdf(pdf_file)
 
     if not full_text or len(full_text) < 200:
         logger.warning(f"Insufficient text extracted from document {document_obj.id}")
         return False
 
-    # Step 2: Chunk karo
     chunks = chunk_text(full_text, chunk_size=500, overlap=50)
 
     if not chunks:
         logger.warning(f"No chunks created for document {document_obj.id}")
         return False
 
-    # Step 3: Vectorize karo
     vectorizer, tfidf_matrix = vectorize_chunks(chunks)
 
     if vectorizer is None:
@@ -248,12 +216,10 @@ def process_document(document_obj, pdf_file):
 
     feature_names = vectorizer.get_feature_names_out()
 
-    # Step 4: Database mein save karo
     document_obj.full_text = full_text
     document_obj.total_chunks = len(chunks)
     document_obj.save()
 
-    # Step 5: Har chunk ko DocumentChunk ke roop mein save karo
     chunk_objects = []
     for i, (chunk, vector_row) in enumerate(zip(chunks, tfidf_matrix)):
         tfidf_dict = vector_to_dict(vector_row, feature_names)
@@ -267,7 +233,6 @@ def process_document(document_obj, pdf_file):
         )
         chunk_objects.append(chunk_obj)
 
-    # Bulk create — ek baar mein sab insert (efficient!)
     DocumentChunk.objects.bulk_create(chunk_objects)
 
     logger.info(f"Document {document_obj.id} processed: {len(chunks)} chunks created")
@@ -281,14 +246,6 @@ def process_document(document_obj, pdf_file):
 def retrieve_relevant_chunks(document_obj, question, top_k=4):
     """
     Question ke liye most relevant chunks retrieve karta hai.
-
-    Algorithm:
-    ┌───────────────────────────────────────────────────────────┐
-    │  1. Sab chunks ka tfidf_vector database se lao           │
-    │  2. Question ko same vocabulary se vectorize karo        │
-    │  3. Cosine similarity calculate karo                     │
-    │  4. Top K scores ke chunks return karo                   │
-    └───────────────────────────────────────────────────────────┘
 
     Args:
         document_obj: Document model instance
@@ -307,46 +264,37 @@ def retrieve_relevant_chunks(document_obj, question, top_k=4):
     if not chunks.exists():
         return []
 
-    # Database se chunk texts aur vectors lao
     chunk_texts = [c.chunk_text for c in chunks]
     chunk_vectors = [c.tfidf_vector for c in chunks]
 
-    # Sab unique words (vocabulary) collect karo
     all_words = set()
     for vec_dict in chunk_vectors:
         all_words.update(vec_dict.keys())
 
     if not all_words:
-        return chunk_texts[:top_k]  # Fallback — pehle K chunks return karo
+        return chunk_texts[:top_k]
 
     vocab_list = sorted(list(all_words))
     vocab_index = {word: i for i, word in enumerate(vocab_list)}
     n_vocab = len(vocab_list)
 
-    # Chunk vectors ko NumPy matrix mein convert karo
     chunk_matrix = np.zeros((len(chunk_vectors), n_vocab))
     for i, vec_dict in enumerate(chunk_vectors):
         for word, score in vec_dict.items():
             if word in vocab_index:
                 chunk_matrix[i, vocab_index[word]] = score
 
-    # Question vectorize karo (simple: word presence × IDF proxy)
     question_words = set(question.lower().split())
     question_vector = np.zeros((1, n_vocab))
     for word in question_words:
         if word in vocab_index:
             question_vector[0, vocab_index[word]] = 1.0
 
-    # Cosine similarity calculate karo
     if np.all(question_vector == 0):
-        return chunk_texts[:top_k]  # Question mein koi match nahi
+        return chunk_texts[:top_k]
 
     similarities = cosine_similarity(question_vector, chunk_matrix)[0]
-
-    # Top K indices (descending order)
     top_indices = np.argsort(similarities)[::-1][:top_k]
-
-    # Chunk index order mein sort karo (natural reading order)
     top_indices_sorted = sorted(top_indices, key=lambda i: i)
 
     relevant_chunks = [chunk_texts[i] for i in top_indices_sorted]
@@ -356,14 +304,53 @@ def retrieve_relevant_chunks(document_obj, question, top_k=4):
 
 
 # ═══════════════════════════════════════════════════════
-# PHASE 3: ANSWER GENERATION (Gemini API)
+# PHASE 3: HUGGING FACE GENERATION PROVIDER
+# ═══════════════════════════════════════════════════════
+
+def generate_answer_with_huggingface(prompt, model_name=None, hf_token=None):
+    """
+    Query Hugging Face Inference API with models like Qwen/Qwen3-VL-32B-Instruct or Qwen/Qwen2.5-72B-Instruct.
+
+    Args:
+        prompt (str): Prepared grounded prompt
+        model_name (str): Hugging Face model repository ID
+        hf_token (str): Hugging Face User Access Token
+
+    Returns:
+        str: Generated answer
+    """
+    token = hf_token or getattr(settings, 'HF_TOKEN', '')
+    model = model_name or getattr(settings, 'HF_MODEL', 'Qwen/Qwen2.5-72B-Instruct')
+
+    if not token:
+        raise ValueError("HF_TOKEN is not configured in .env file.")
+
+    client = InferenceClient(model=model, token=token)
+
+    response = client.chat.completions.create(
+        messages=[
+            {
+                "role": "system",
+                "content": "You are an AI assistant that answers questions based STRICTLY on the provided document passages."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        max_tokens=1024,
+        temperature=0.2,
+    )
+    return response.choices[0].message.content
+
+
+# ═══════════════════════════════════════════════════════
+# PHASE 3: HYBRID GENERATION (Gemini or Hugging Face)
 # ═══════════════════════════════════════════════════════
 
 def generate_answer(question, context_chunks, conversation_history=None):
     """
-    Retrieved chunks + question → Gemini API → Grounded Answer
-
-    Key principle: Answer ONLY from context, not from training data!
+    Retrieved chunks + question → Gemini API or Hugging Face (Qwen) → Grounded Answer
 
     Args:
         question (str): User's question
@@ -373,36 +360,31 @@ def generate_answer(question, context_chunks, conversation_history=None):
     Returns:
         str: AI-generated answer
     """
-    api_key = settings.GEMINI_API_KEY
+    gemini_key = getattr(settings, 'GEMINI_API_KEY', '')
+    hf_token = getattr(settings, 'HF_TOKEN', '')
 
-    if not api_key:
-        return "⚠️ Gemini API key not configured. Add GEMINI_API_KEY to your .env file."
+    if not gemini_key and not hf_token:
+        return "⚠️ No AI API Key configured. Please add GEMINI_API_KEY or HF_TOKEN to your .env file."
 
     if not context_chunks:
         return ("❌ I couldn't find relevant information in the document for your question. "
                 "Try rephrasing or asking about a different topic from the document.")
 
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+    # Context string
+    context = "\n\n---\n\n".join([
+        f"[Passage {i+1}]: {chunk}"
+        for i, chunk in enumerate(context_chunks)
+    ])
 
-        # Context banao — sab chunks combine karo
-        context = "\n\n---\n\n".join([
-            f"[Passage {i+1}]: {chunk}"
-            for i, chunk in enumerate(context_chunks)
-        ])
+    history_text = ""
+    if conversation_history:
+        recent = conversation_history[-4:]
+        history_text = "\n\n## Previous Conversation:\n"
+        for msg in recent:
+            role = "User" if msg['role'] == 'user' else "Assistant"
+            history_text += f"{role}: {msg['content'][:300]}\n"
 
-        # Conversation history include karo (multi-turn chat support)
-        history_text = ""
-        if conversation_history:
-            recent = conversation_history[-4:]  # Last 4 messages
-            history_text = "\n\n## Previous Conversation:\n"
-            for msg in recent:
-                role = "User" if msg['role'] == 'user' else "Assistant"
-                history_text += f"{role}: {msg['content'][:300]}\n"
-
-        # Prompt Engineering — CRITICAL!
-        prompt = f"""You are an AI assistant that answers questions based STRICTLY on the provided document passages.
+    prompt = f"""You are an AI assistant that answers questions based STRICTLY on the provided document passages.
 
 ## Document Context:
 {context}
@@ -420,12 +402,25 @@ def generate_answer(question, context_chunks, conversation_history=None):
 
 ## Answer:"""
 
-        response = model.generate_content(prompt)
-        return response.text
+    # 1. Try Hugging Face if HF_TOKEN is specified
+    if hf_token:
+        try:
+            return generate_answer_with_huggingface(prompt, hf_token=hf_token)
+        except Exception as e:
+            logger.warning(f"Hugging Face generation failed, falling back to Gemini: {e}")
 
-    except Exception as e:
-        logger.error(f"Gemini answer generation failed: {e}")
-        return f"⚠️ Could not generate answer: {str(e)}"
+    # 2. Try Gemini API
+    if gemini_key:
+        try:
+            genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            response = model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            logger.error(f"Gemini answer generation failed: {e}")
+            return f"⚠️ Could not generate answer: {str(e)}"
+
+    return "⚠️ AI service unavailable."
 
 
 # ═══════════════════════════════════════════════════════
@@ -435,7 +430,6 @@ def generate_answer(question, context_chunks, conversation_history=None):
 def generate_document_summary(full_text):
     """
     Document ka short summary generate karta hai.
-    Ye documents page pe document card mein dikhega.
 
     Args:
         full_text (str): Full extracted text
@@ -443,25 +437,24 @@ def generate_document_summary(full_text):
     Returns:
         str: 2-3 line summary
     """
-    api_key = settings.GEMINI_API_KEY
+    gemini_key = getattr(settings, 'GEMINI_API_KEY', '')
+    hf_token = getattr(settings, 'HF_TOKEN', '')
 
-    if not api_key:
-        # Fallback — pehle 200 characters return karo
-        return full_text[:200].strip() + "..."
+    prompt = f"Summarize this document in 2-3 sentences. Be concise.\n\nDocument text:\n{full_text[:3000]}\n\nSummary:"
 
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+    if hf_token:
+        try:
+            return generate_answer_with_huggingface(prompt, hf_token=hf_token)
+        except Exception:
+            pass
 
-        prompt = f"""Summarize this document in 2-3 sentences. Be concise.
+    if gemini_key:
+        try:
+            genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            response = model.generate_content(prompt)
+            return response.text.strip()
+        except Exception:
+            pass
 
-Document text (first 3000 chars):
-{full_text[:3000]}
-
-Summary:"""
-
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        logger.warning(f"Summary generation failed: {e}")
-        return full_text[:200].strip() + "..."
+    return full_text[:200].strip() + "..."
