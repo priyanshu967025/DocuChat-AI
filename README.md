@@ -209,4 +209,4 @@ USER ──< DOCUMENT ──< DOCUMENT_CHUNK
 
 ---
 
-*Built as a CV project for on-campus placements | July 2026*
+* July 2026*
