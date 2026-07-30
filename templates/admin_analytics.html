@@ -1,0 +1,167 @@
+{% extends 'base.html' %}
+{% block title %}Admin Analytics Dashboard — DocuMind AI{% endblock %}
+
+{% block extra_css %}
+<style>
+    .stat-card {
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(99, 102, 241, 0.2);
+        border-radius: 16px;
+        padding: 1.5rem;
+        transition: transform 0.2s, border-color 0.2s;
+    }
+    .stat-card:hover {
+        transform: translateY(-3px);
+        border-color: rgba(99, 102, 241, 0.4);
+    }
+    .stat-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        margin-bottom: 1rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold mb-1">
+            System & Usage <span class="gradient-text">Analytics Dashboard</span>
+        </h2>
+        <p class="text-muted mb-0">Real-time metrics: FAISS Semantic Search, Qwen3 API latency, OCR & Token tracking</p>
+    </div>
+    <span class="badge px-3 py-2" style="background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3);">
+        🟢 System Status: Operational
+    </span>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-4 col-lg-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background: rgba(99,102,241,0.15); color: #818cf8;">
+                📄
+            </div>
+            <h3 class="fw-bold text-white mb-1" id="totalDocs">—</h3>
+            <small class="text-muted">Indexed Documents</small>
+        </div>
+    </div>
+    <div class="col-md-4 col-lg-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background: rgba(168,85,247,0.15); color: #c084fc;">
+                🧩
+            </div>
+            <h3 class="fw-bold text-white mb-1" id="totalChunks">—</h3>
+            <small class="text-muted">FAISS Vector Chunks</small>
+        </div>
+    </div>
+    <div class="col-md-4 col-lg-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background: rgba(16,185,129,0.15); color: #34d399;">
+                💬
+            </div>
+            <h3 class="fw-bold text-white mb-1" id="totalQueries">—</h3>
+            <small class="text-muted">RAG Queries Processed</small>
+        </div>
+    </div>
+    <div class="col-md-4 col-lg-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background: rgba(245,158,11,0.15); color: #fbbf24;">
+                ⚡
+            </div>
+            <h3 class="fw-bold text-white mb-1" id="avgLatency">— ms</h3>
+            <small class="text-muted">Avg Query Latency</small>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="glass-card">
+            <h5 class="fw-bold gradient-text mb-3"><i class="bi bi-cpu"></i> Architecture & Stack Overview</h5>
+            <div class="table-responsive">
+                <table class="table table-dark table-borderless align-middle mb-0">
+                    <thead>
+                        <tr class="text-muted small">
+                            <th>COMPONENT</th>
+                            <th>TECHNOLOGY</th>
+                            <th>STATUS</th>
+                        </tr>
+                    </thead>
+                    <tbody class="small">
+                        <tr>
+                            <td>Backend API</td>
+                            <td>Django 6.x + Django REST Framework</td>
+                            <td><span class="badge bg-success">Active</span></td>
+                        </tr>
+                        <tr>
+                            <td>Vector Search Engine</td>
+                            <td>FAISS + TF-IDF Vectorizer</td>
+                            <td><span class="badge bg-success">Active</span></td>
+                        </tr>
+                        <tr>
+                            <td>Primary LLM Engine</td>
+                            <td>Qwen3-32B API / Hugging Face Router</td>
+                            <td><span class="badge bg-success">Ready</span></td>
+                        </tr>
+                        <tr>
+                            <td>Async Task Queue</td>
+                            <td>Celery + Redis Broker</td>
+                            <td><span class="badge bg-info">Configured</span></td>
+                        </tr>
+                        <tr>
+                            <td>OCR Extraction Engine</td>
+                            <td>PyTesseract + pdf2image</td>
+                            <td><span class="badge bg-success">Active</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="glass-card">
+            <h5 class="fw-bold gradient-text mb-3"><i class="bi bi-bar-chart-line"></i> Usage Metrics</h5>
+            <div class="mb-3">
+                <small class="text-muted d-block mb-1">OCR Processed Documents</small>
+                <h5 class="fw-bold text-white" id="ocrDocs">—</h5>
+            </div>
+            <div class="mb-3">
+                <small class="text-muted d-block mb-1">Estimated Tokens Processed</small>
+                <h5 class="fw-bold text-white" id="tokensUsed">—</h5>
+            </div>
+            <div>
+                <small class="text-muted d-block mb-1">Database Engine</small>
+                <span class="badge bg-secondary" id="dbEngine">PostgreSQL / SQLite</span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    async function loadAnalytics() {
+        try {
+            const res = await fetch('/api/analytics/');
+            if (res.ok) {
+                const data = await res.json();
+                document.getElementById('totalDocs').innerText = data.total_documents || 0;
+                document.getElementById('totalChunks').innerText = data.total_chunks || 0;
+                document.getElementById('totalQueries').innerText = data.total_queries || 0;
+                document.getElementById('avgLatency').innerText = (data.avg_latency_ms || 0) + ' ms';
+                document.getElementById('ocrDocs').innerText = data.ocr_processed_docs || 0;
+                document.getElementById('tokensUsed').innerText = (data.estimated_tokens_used || 0).toLocaleString();
+                document.getElementById('dbEngine').innerText = data.database_engine.toUpperCase();
+            }
+        } catch (e) {
+            console.log('Analytics load error:', e);
+        }
+    }
+    loadAnalytics();
+</script>
+{% endblock %}

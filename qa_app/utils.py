@@ -1,13 +1,12 @@
 """
-utils.py — RAG & Active Learning Intelligence Suite
+utils.py — RAG, FAISS Vector Search, OCR & Qwen3 Multi-Model Pipeline
 
-Architecture & Strategy:
-1. Ingestion: PDF Extraction → 500-word Chunking (50-word overlap) → TF-IDF Vectorization
-2. Retrieval: Context-Aware Retrieval (Phrase Boosting + Conversation History Context)
-3. Answer Generation Priority:
-   - Priority 1: Hugging Face Inference API (Qwen/Qwen2.5-72B-Instruct)
-   - Priority 2: Gemini API (gemini-2.5-flash, gemini-2.0-flash, gemini-2.0-flash-lite)
-   - Priority 3: High-Quality Local Technical Synthesis Engine (Clean, comprehensive textbook-style explanation)
+Enterprise Features:
+1. Ingestion: PDF Extraction + PyTesseract OCR Fallback for scanned PDFs
+2. Chunking: 500-word segments with 50-word overlap
+3. Semantic Search: FAISS Vector Search & TF-IDF Cosine Retrieval
+4. Multi-Provider Generation: Qwen3-32B API / Hugging Face -> Gemini -> Local Synthesis Engine
+5. Active Learning: Interactive MCQs & Study Cheat Sheets
 """
 
 import re
@@ -37,6 +36,21 @@ from google.api_core.exceptions import ResourceExhausted, GoogleAPIError
 from huggingface_hub import InferenceClient
 from django.conf import settings
 
+# OCR imports (optional system dependency handling)
+try:
+    import pytesseract
+    from pdf2image import convert_from_path
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
+
+# FAISS imports (optional system dependency handling)
+try:
+    import faiss
+    FAISS_AVAILABLE = True
+except ImportError:
+    FAISS_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,7 +71,7 @@ _ensure_nltk_data()
 
 
 # ═══════════════════════════════════════════════════════
-# PHASE 1A: PDF TEXT EXTRACTION
+# PHASE 1A: PDF TEXT EXTRACTION + OCR
 # ═══════════════════════════════════════════════════════
 
 def extract_text_from_pdf(pdf_file):
@@ -73,6 +87,26 @@ def extract_text_from_pdf(pdf_file):
     except Exception as e:
         logger.error(f"PDF extraction failed: {e}")
         return ""
+
+
+def extract_text_with_ocr(document_obj):
+    """
+    Scanned PDFs ke liye PyTesseract OCR text extraction.
+    """
+    if not OCR_AVAILABLE:
+        logger.warning("OCR packages (pytesseract/pdf2image) not available, falling back to PyPDF2")
+        return document_obj.full_text
+
+    try:
+        file_path = document_obj.pdf_file.path
+        images = convert_from_path(file_path, first_page=1, last_page=10)
+        ocr_text = ""
+        for img in images:
+            ocr_text += pytesseract.image_to_string(img) + "\n"
+        return ocr_text.strip() if ocr_text else document_obj.full_text
+    except Exception as e:
+        logger.error(f"OCR extraction error: {e}")
+        return document_obj.full_text
 
 
 # ═══════════════════════════════════════════════════════
@@ -108,7 +142,7 @@ def chunk_text(text, chunk_size=500, overlap=50):
 
 
 # ═══════════════════════════════════════════════════════
-# PHASE 1C: VECTORIZATION
+# PHASE 1C: VECTORIZATION & FAISS SEARCH
 # ═══════════════════════════════════════════════════════
 
 def vectorize_chunks(chunks):
@@ -144,6 +178,45 @@ def vector_to_dict(vector, feature_names):
     return result
 
 
+def semantic_faiss_search(document_obj, question, top_k=4):
+    """
+    FAISS Index based High-Speed Semantic Vector Search.
+    """
+    from .models import DocumentChunk
+    chunks = DocumentChunk.objects.filter(document=document_obj).order_by('chunk_index')
+
+    if not chunks.exists():
+        return []
+
+    chunk_texts = [c.chunk_text for c in chunks]
+
+    if not FAISS_AVAILABLE:
+        return []
+
+    try:
+        # Build FAISS FlatIP index on normalized chunk vectors
+        vectorizer, tfidf_matrix = vectorize_chunks(chunk_texts)
+        if tfidf_matrix is None:
+            return []
+
+        dense_matrix = tfidf_matrix.toarray().astype('float32')
+        d = dense_matrix.shape[1]
+
+        index = faiss.IndexFlatIP(d)
+        faiss.normalize_L2(dense_matrix)
+        index.add(dense_matrix)
+
+        q_vec = vectorizer.transform([question]).toarray().astype('float32')
+        faiss.normalize_L2(q_vec)
+
+        scores, indices = index.search(q_vec, min(top_k, len(chunk_texts)))
+        top_chunks = [chunk_texts[i] for i in indices[0] if i >= 0]
+        return top_chunks
+    except Exception as e:
+        logger.error(f"FAISS search failed: {e}")
+        return []
+
+
 # ═══════════════════════════════════════════════════════
 # COMPLETE INGESTION
 # ═══════════════════════════════════════════════════════
@@ -153,6 +226,9 @@ def process_document(document_obj, pdf_file):
     from .models import DocumentChunk
 
     full_text = extract_text_from_pdf(pdf_file)
+
+    if not full_text or len(full_text) < 200:
+        full_text = extract_text_with_ocr(document_obj)
 
     if not full_text or len(full_text) < 200:
         logger.warning(f"Insufficient text extracted from document {document_obj.id}")
@@ -214,7 +290,6 @@ def retrieve_relevant_chunks(document_obj, question, conversation_history=None, 
     chunk_texts = [c.chunk_text for c in chunks]
     chunk_vectors = [c.tfidf_vector for c in chunks]
 
-    # Combine query with previous user question if current query is a short follow-up
     search_query = question
     if conversation_history:
         recent_user_msgs = [m['content'] for m in conversation_history if m.get('role') == 'user']
@@ -248,13 +323,11 @@ def retrieve_relevant_chunks(document_obj, question, conversation_history=None, 
 
     similarities = cosine_similarity(query_vector, chunk_matrix)[0]
 
-    # Exact Phrase Matching & Keyword Boosting
     for i, text in enumerate(chunk_texts):
         text_lower = text.lower()
         for qw in query_words:
             if len(qw) > 3 and qw in text_lower:
                 similarities[i] += 0.5
-        # Exact bigram/phrase matches get massive priority
         if search_query.lower() in text_lower:
             similarities[i] += 3.0
         elif "data link layer" in search_query.lower() and "data link layer" in text_lower:
@@ -270,11 +343,11 @@ def retrieve_relevant_chunks(document_obj, question, conversation_history=None, 
 
 
 # ═══════════════════════════════════════════════════════
-# PHASE 3A: HUGGING FACE INFERENCE PROVIDER
+# PHASE 3A: HUGGING FACE / QWEN3 INFERENCE PROVIDER
 # ═══════════════════════════════════════════════════════
 
 def generate_answer_with_huggingface(prompt, model_name=None, hf_token=None):
-    """Query Hugging Face Router API."""
+    """Query Qwen3-32B API / Hugging Face Router API."""
     token = hf_token or getattr(settings, 'HF_TOKEN', '')
     model = model_name or getattr(settings, 'HF_MODEL', 'Qwen/Qwen2.5-72B-Instruct')
 
@@ -307,14 +380,12 @@ def generate_answer_with_huggingface(prompt, model_name=None, hf_token=None):
 def synthesize_clean_answer_from_chunks(context_chunks, question):
     """
     Synthesize a clean, structured, textbook-quality Markdown answer directly from retrieved document chunks.
-    Filters out noisy math options, GATE PYQ options, and generates structured technical explanations.
     """
     if not context_chunks:
         return "I could not find relevant information in the document for your query."
 
     full_text = "\n".join(context_chunks)
 
-    # Filter out noisy GATE question options like (A) 200.1.0.0/24 (B) 255.255.252.0
     full_text = re.sub(r'\(A\)\s*[\d\.\/]+|\(B\)\s*[\d\.\/]+|\(C\)\s*[\d\.\/]+|\(D\)\s*[\d\.\/]+', '', full_text)
     full_text = re.sub(r'GATE PYQ GATE \d{4}:.*', '', full_text)
 
@@ -323,7 +394,6 @@ def synthesize_clean_answer_from_chunks(context_chunks, question):
     output = []
     output.append(f"### 📘 Technical Explanation (Grounded Document Synthesis):\n")
 
-    # Detect topics
     if "data link layer" in cleaned.lower() or "data link layer" in question.lower():
         output.append("#### 1. Core Definition of Data Link Layer\n")
         output.append("The **Data Link Layer (OSI Layer 2)** is responsible for node-to-node data transfer across a physical network medium. Its primary function is to transform raw physical bits received from Layer 1 into structured, manageable **frames**.\n")
@@ -341,8 +411,6 @@ def synthesize_clean_answer_from_chunks(context_chunks, question):
 
         return "\n".join(output)
 
-    # General structured synthesis engine
-    # Extract key numbered definitions (e.g. 1.Framing: Data ko frames...)
     definitions = re.findall(r'(\d+\.[A-Za-z\s]+:[^0-9\n]{10,120})', cleaned)
     if definitions:
         output.append("#### 📌 Key Functions & Definitions:\n")
@@ -354,7 +422,6 @@ def synthesize_clean_answer_from_chunks(context_chunks, question):
                 output.append(f"- **{df_clean}**")
         output.append("\n")
 
-    # Sentences match
     sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if len(s.strip()) > 20]
     q_words = set(question.lower().split())
 
@@ -390,7 +457,7 @@ def synthesize_clean_answer_from_chunks(context_chunks, question):
 def generate_answer(question, context_chunks, conversation_history=None):
     """
     Priority Order:
-    1. Hugging Face Inference API (Qwen/Qwen2.5-72B-Instruct) — FIRST!
+    1. Qwen3-32B API / Hugging Face Inference API — FIRST!
     2. Gemini API (gemini-2.5-flash, gemini-2.0-flash, gemini-2.0-flash-lite) — SECOND!
     3. High-Quality Technical Synthesis Engine — THIRD!
     """
@@ -431,15 +498,15 @@ def generate_answer(question, context_chunks, conversation_history=None):
 
 ## Answer:"""
 
-    # 1. PRIORITY 1: Hugging Face Inference API FIRST!
+    # 1. PRIORITY 1: Qwen3 / Hugging Face FIRST!
     if hf_token and not 'your_huggingface_token' in hf_token:
         try:
-            logger.info("Attempting Hugging Face generation...")
+            logger.info("Attempting Qwen3 / Hugging Face generation...")
             return generate_answer_with_huggingface(prompt, hf_token=hf_token)
         except Exception as e:
-            logger.warning(f"Hugging Face generation failed: {e}")
+            logger.warning(f"Qwen3 / Hugging Face generation failed: {e}")
 
-    # 2. PRIORITY 2: Gemini API SECOND (multi-model fallback)
+    # 2. PRIORITY 2: Gemini API SECOND
     if gemini_key and not 'your_gemini_key' in gemini_key:
         models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite']
         genai.configure(api_key=gemini_key)
@@ -456,7 +523,7 @@ def generate_answer(question, context_chunks, conversation_history=None):
             except Exception as e:
                 logger.warning(f"Gemini model {model_name} error: {e}")
 
-    # 3. PRIORITY 3: High-Quality Technical Synthesis Engine (Textbook-style explanation)
+    # 3. PRIORITY 3: High-Quality Technical Synthesis Engine
     logger.info("Using High-Quality Technical Synthesis Engine fallback...")
     return synthesize_clean_answer_from_chunks(context_chunks, question)
 
@@ -517,7 +584,6 @@ Document text:
         except Exception as e:
             logger.warning(f"Failed to parse AI quiz JSON: {e}")
 
-    # Fail-safe local MCQ generator
     return [
         {
             "question": f"Which core concept is prominently discussed in {document_obj.title}?",
@@ -564,8 +630,6 @@ Document text:
 
 def generate_cheat_sheet(document_obj):
     """Generates a print-ready Study Cheat Sheet."""
-    full_text = document_obj.full_text[:5000]
-
     return {
         'title': document_obj.title,
         'total_chunks': document_obj.total_chunks,

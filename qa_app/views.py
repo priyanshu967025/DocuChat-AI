@@ -375,7 +375,7 @@ def rename_conversation(request, doc_id, conv_id):
 
 
 # ─────────────────────────────────────────
-# ACTIVE LEARNING VIEWS
+# ACTIVE LEARNING & ANALYTICS VIEWS
 # ─────────────────────────────────────────
 
 @login_required
@@ -395,3 +395,9 @@ def cheat_sheet_view(request, doc_id):
         'document': document,
         'sheet': sheet_data
     })
+
+
+@login_required
+def analytics_dashboard_view(request):
+    """Renders Admin System & Usage Analytics Dashboard page."""
+    return render(request, 'admin_analytics.html')
