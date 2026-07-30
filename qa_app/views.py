@@ -401,3 +401,9 @@ def cheat_sheet_view(request, doc_id):
 def analytics_dashboard_view(request):
     """Renders Admin System & Usage Analytics Dashboard page."""
     return render(request, 'admin_analytics.html')
+
+
+@login_required
+def system_design_view(request):
+    """Renders System Design & Architecture documentation page."""
+    return render(request, 'system_design.html')

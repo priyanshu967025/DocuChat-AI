@@ -1,0 +1,1000 @@
+{% extends 'base.html' %}
+{% block title %}System Design & Architecture — DocuMind AI{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* ═══════════════════════════════════════════════════
+       SYSTEM DESIGN PAGE — PREMIUM DARK THEME
+       ═══════════════════════════════════════════════════ */
+
+    .sd-hero {
+        text-align: center;
+        padding: 2.5rem 0 1.5rem;
+    }
+    .sd-hero h1 {
+        font-size: 2.4rem;
+        font-weight: 800;
+        margin-bottom: 0.5rem;
+    }
+    .sd-hero p {
+        color: #94a3b8;
+        font-size: 1.05rem;
+        max-width: 700px;
+        margin: 0 auto;
+    }
+
+    /* Section Headings */
+    .sd-section-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 1.2rem;
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+    }
+    .sd-section-title .icon-box {
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        flex-shrink: 0;
+    }
+
+    /* Architecture Diagram — Pure CSS */
+    .arch-diagram {
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(99, 102, 241, 0.15);
+        border-radius: 20px;
+        padding: 2.5rem 1.5rem;
+        overflow-x: auto;
+    }
+    .arch-row {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 0.8rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.5rem;
+    }
+    .arch-node {
+        background: rgba(15, 23, 42, 0.9);
+        border: 1.5px solid rgba(99, 102, 241, 0.25);
+        border-radius: 14px;
+        padding: 1rem 1.4rem;
+        text-align: center;
+        min-width: 140px;
+        max-width: 180px;
+        transition: all 0.3s ease;
+        position: relative;
+    }
+    .arch-node:hover {
+        border-color: rgba(129, 140, 248, 0.7);
+        transform: translateY(-4px);
+        box-shadow: 0 12px 30px rgba(99, 102, 241, 0.2);
+    }
+    .arch-node .node-icon {
+        font-size: 1.6rem;
+        display: block;
+        margin-bottom: 0.35rem;
+    }
+    .arch-node .node-label {
+        font-weight: 700;
+        font-size: 0.85rem;
+        color: #e2e8f0;
+    }
+    .arch-node .node-tech {
+        font-size: 0.7rem;
+        color: #818cf8;
+        margin-top: 2px;
+    }
+
+    /* Node accent colors */
+    .node-client   { border-color: rgba(56, 189, 248, 0.4); }
+    .node-client:hover { border-color: rgba(56, 189, 248, 0.8); box-shadow: 0 12px 30px rgba(56, 189, 248, 0.15); }
+    .node-api      { border-color: rgba(99, 102, 241, 0.4); }
+    .node-api:hover { border-color: rgba(99, 102, 241, 0.8); }
+    .node-ai       { border-color: rgba(168, 85, 247, 0.4); }
+    .node-ai:hover { border-color: rgba(168, 85, 247, 0.8); box-shadow: 0 12px 30px rgba(168, 85, 247, 0.15); }
+    .node-storage  { border-color: rgba(34, 197, 94, 0.4); }
+    .node-storage:hover { border-color: rgba(34, 197, 94, 0.8); box-shadow: 0 12px 30px rgba(34, 197, 94, 0.15); }
+    .node-infra    { border-color: rgba(245, 158, 11, 0.4); }
+    .node-infra:hover { border-color: rgba(245, 158, 11, 0.8); box-shadow: 0 12px 30px rgba(245, 158, 11, 0.15); }
+
+    /* Arrows between rows */
+    .arch-arrow {
+        text-align: center;
+        color: rgba(99, 102, 241, 0.45);
+        font-size: 1.4rem;
+        margin: 0.2rem 0;
+        letter-spacing: 3rem;
+    }
+
+    /* Layer label */
+    .layer-label {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        font-weight: 700;
+        padding: 0.3rem 0.9rem;
+        border-radius: 6px;
+        display: inline-block;
+        margin-bottom: 0.8rem;
+    }
+    .layer-client  { background: rgba(56, 189, 248, 0.1); color: #38bdf8; }
+    .layer-api     { background: rgba(99, 102, 241, 0.1); color: #818cf8; }
+    .layer-ai      { background: rgba(168, 85, 247, 0.1); color: #c084fc; }
+    .layer-storage { background: rgba(34, 197, 94, 0.1); color: #4ade80; }
+    .layer-infra   { background: rgba(245, 158, 11, 0.1); color: #fbbf24; }
+
+    /* Data Flow Pipeline */
+    .flow-pipeline {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        overflow-x: auto;
+        padding: 1.5rem 0;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    .flow-step {
+        background: rgba(15, 23, 42, 0.85);
+        border: 1.5px solid rgba(99, 102, 241, 0.2);
+        border-radius: 14px;
+        padding: 1.2rem 1rem;
+        text-align: center;
+        min-width: 130px;
+        max-width: 155px;
+        transition: all 0.3s ease;
+    }
+    .flow-step:hover {
+        transform: scale(1.05);
+        border-color: rgba(129, 140, 248, 0.6);
+    }
+    .flow-step .step-num {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        background: linear-gradient(135deg, #6366f1, #a78bfa);
+        color: white;
+    }
+    .flow-step .step-icon { font-size: 1.3rem; display: block; margin-bottom: 0.3rem; }
+    .flow-step .step-title { font-weight: 700; font-size: 0.78rem; color: #e2e8f0; }
+    .flow-step .step-desc { font-size: 0.65rem; color: #94a3b8; margin-top: 3px; }
+    .flow-arrow {
+        color: rgba(129, 140, 248, 0.5);
+        font-size: 1.3rem;
+        flex-shrink: 0;
+        padding: 0 0.2rem;
+    }
+
+    /* ER Diagram */
+    .er-card {
+        background: rgba(15, 23, 42, 0.85);
+        border: 1.5px solid rgba(99, 102, 241, 0.2);
+        border-radius: 14px;
+        overflow: hidden;
+        transition: all 0.3s ease;
+    }
+    .er-card:hover {
+        border-color: rgba(129, 140, 248, 0.5);
+        box-shadow: 0 8px 24px rgba(99, 102, 241, 0.12);
+    }
+    .er-card-header {
+        padding: 0.7rem 1rem;
+        font-weight: 700;
+        font-size: 0.85rem;
+        border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+    }
+    .er-card-body {
+        padding: 0.6rem 1rem;
+    }
+    .er-field {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.25rem 0;
+        font-size: 0.75rem;
+        color: #cbd5e1;
+        border-bottom: 1px solid rgba(99, 102, 241, 0.06);
+    }
+    .er-field:last-child { border-bottom: none; }
+    .er-key {
+        font-size: 0.6rem;
+        font-weight: 700;
+        padding: 1px 5px;
+        border-radius: 3px;
+        flex-shrink: 0;
+    }
+    .er-pk { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+    .er-fk { background: rgba(56, 189, 248, 0.2); color: #38bdf8; }
+    .er-field-name { font-weight: 600; color: #e2e8f0; }
+    .er-field-type { color: #818cf8; margin-left: auto; font-size: 0.65rem; }
+
+    /* ER relationship arrows */
+    .er-rel {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(129, 140, 248, 0.4);
+        font-size: 0.75rem;
+        padding: 0.4rem 0;
+        gap: 0.5rem;
+    }
+    .er-rel-line {
+        height: 1px;
+        flex: 1;
+        max-width: 60px;
+        background: rgba(129, 140, 248, 0.25);
+    }
+
+    /* API Endpoint Table */
+    .api-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .api-table th {
+        padding: 0.65rem 0.8rem;
+        text-align: left;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #94a3b8;
+        border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+    }
+    .api-table td {
+        padding: 0.6rem 0.8rem;
+        font-size: 0.8rem;
+        border-bottom: 1px solid rgba(99, 102, 241, 0.06);
+        vertical-align: top;
+    }
+    .method-badge {
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 4px;
+        display: inline-block;
+    }
+    .method-get    { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+    .method-post   { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+    .method-put    { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+    .method-delete { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+
+    /* Tech Stack Cards */
+    .tech-card {
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(99, 102, 241, 0.15);
+        border-radius: 14px;
+        padding: 1.2rem;
+        text-align: center;
+        transition: all 0.3s ease;
+    }
+    .tech-card:hover {
+        transform: translateY(-3px);
+        border-color: rgba(129, 140, 248, 0.4);
+    }
+    .tech-card .tech-icon {
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+    .tech-card .tech-name {
+        font-weight: 700;
+        font-size: 0.9rem;
+        color: #e2e8f0;
+    }
+    .tech-card .tech-role {
+        font-size: 0.7rem;
+        color: #94a3b8;
+        margin-top: 3px;
+    }
+
+    /* Scalability Section */
+    .scale-metric {
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(99, 102, 241, 0.15);
+        border-radius: 14px;
+        padding: 1.5rem;
+        text-align: center;
+        transition: all 0.3s ease;
+    }
+    .scale-metric:hover {
+        border-color: rgba(129, 140, 248, 0.4);
+        transform: translateY(-2px);
+    }
+    .scale-metric .metric-value {
+        font-size: 2rem;
+        font-weight: 800;
+        display: block;
+    }
+    .scale-metric .metric-label {
+        font-size: 0.78rem;
+        color: #94a3b8;
+        margin-top: 0.2rem;
+    }
+
+    /* Section divider */
+    .sd-divider {
+        border: none;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.2), transparent);
+        margin: 2.5rem 0;
+    }
+
+    /* Animate on scroll (simple fade-up) */
+    .fade-up {
+        opacity: 0;
+        transform: translateY(20px);
+        transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .fade-up.visible {
+        opacity: 1;
+        transform: translateY(0);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ════════════════════════════════════════════
+     HERO
+     ════════════════════════════════════════════ -->
+<div class="sd-hero fade-up">
+    <h1><span class="gradient-text">System Design</span> & Architecture</h1>
+    <p>Comprehensive technical blueprint of DocuMind AI — a production-grade, scalable, enterprise document intelligence platform.</p>
+</div>
+
+<!-- ════════════════════════════════════════════
+     1. HIGH-LEVEL ARCHITECTURE DIAGRAM
+     ════════════════════════════════════════════ -->
+<section class="mb-5 fade-up">
+    <div class="sd-section-title">
+        <span class="icon-box" style="background: rgba(99,102,241,0.15); color: #818cf8;">🏗️</span>
+        High-Level System Architecture
+    </div>
+    <div class="arch-diagram">
+
+        <!-- CLIENT LAYER -->
+        <div class="text-center"><span class="layer-label layer-client">Presentation Layer</span></div>
+        <div class="arch-row">
+            <div class="arch-node node-client">
+                <span class="node-icon">🌐</span>
+                <span class="node-label">Web Browser</span>
+                <span class="node-tech">HTML / JS / CSS</span>
+            </div>
+            <div class="arch-node node-client">
+                <span class="node-icon">📱</span>
+                <span class="node-label">Mobile / SPA</span>
+                <span class="node-tech">REST API Client</span>
+            </div>
+            <div class="arch-node node-client">
+                <span class="node-icon">🤖</span>
+                <span class="node-label">API Consumer</span>
+                <span class="node-tech">Postman / cURL</span>
+            </div>
+        </div>
+
+        <div class="arch-arrow">▼ &nbsp;&nbsp; ▼ &nbsp;&nbsp; ▼</div>
+
+        <!-- API GATEWAY LAYER -->
+        <div class="text-center"><span class="layer-label layer-api">Application Layer</span></div>
+        <div class="arch-row">
+            <div class="arch-node node-api">
+                <span class="node-icon">⚡</span>
+                <span class="node-label">Django 6.x</span>
+                <span class="node-tech">WSGI / Gunicorn</span>
+            </div>
+            <div class="arch-node node-api">
+                <span class="node-icon">🔌</span>
+                <span class="node-label">DRF REST API</span>
+                <span class="node-tech">ViewSets + Router</span>
+            </div>
+            <div class="arch-node node-api">
+                <span class="node-icon">🔐</span>
+                <span class="node-label">Auth & CORS</span>
+                <span class="node-tech">Session / Token</span>
+            </div>
+        </div>
+
+        <div class="arch-arrow">▼ &nbsp;&nbsp; ▼ &nbsp;&nbsp; ▼</div>
+
+        <!-- AI & PROCESSING LAYER -->
+        <div class="text-center"><span class="layer-label layer-ai">Intelligence Layer</span></div>
+        <div class="arch-row">
+            <div class="arch-node node-ai">
+                <span class="node-icon">🧠</span>
+                <span class="node-label">Qwen3-32B API</span>
+                <span class="node-tech">HuggingFace Router</span>
+            </div>
+            <div class="arch-node node-ai">
+                <span class="node-icon">🔎</span>
+                <span class="node-label">FAISS Engine</span>
+                <span class="node-tech">Vector Similarity</span>
+            </div>
+            <div class="arch-node node-ai">
+                <span class="node-icon">📝</span>
+                <span class="node-label">OCR Engine</span>
+                <span class="node-tech">PyTesseract</span>
+            </div>
+            <div class="arch-node node-ai">
+                <span class="node-icon">🔗</span>
+                <span class="node-label">LangChain</span>
+                <span class="node-tech">Text Splitting</span>
+            </div>
+        </div>
+
+        <div class="arch-arrow">▼ &nbsp;&nbsp; ▼ &nbsp;&nbsp; ▼</div>
+
+        <!-- DATA LAYER -->
+        <div class="text-center"><span class="layer-label layer-storage">Data & Storage Layer</span></div>
+        <div class="arch-row">
+            <div class="arch-node node-storage">
+                <span class="node-icon">🐘</span>
+                <span class="node-label">PostgreSQL</span>
+                <span class="node-tech">Primary RDBMS</span>
+            </div>
+            <div class="arch-node node-storage">
+                <span class="node-icon">💾</span>
+                <span class="node-label">SQLite</span>
+                <span class="node-tech">Dev / Fallback</span>
+            </div>
+            <div class="arch-node node-storage">
+                <span class="node-icon">📂</span>
+                <span class="node-label">File System</span>
+                <span class="node-tech">PDF / Media</span>
+            </div>
+        </div>
+
+        <div class="arch-arrow">▼ &nbsp;&nbsp; ▼ &nbsp;&nbsp; ▼</div>
+
+        <!-- INFRA LAYER -->
+        <div class="text-center"><span class="layer-label layer-infra">Infrastructure Layer</span></div>
+        <div class="arch-row">
+            <div class="arch-node node-infra">
+                <span class="node-icon">🐳</span>
+                <span class="node-label">Docker</span>
+                <span class="node-tech">Compose / OCI</span>
+            </div>
+            <div class="arch-node node-infra">
+                <span class="node-icon">🔴</span>
+                <span class="node-label">Redis</span>
+                <span class="node-tech">Broker & Cache</span>
+            </div>
+            <div class="arch-node node-infra">
+                <span class="node-icon">⚙️</span>
+                <span class="node-label">Celery Worker</span>
+                <span class="node-tech">Async Task Queue</span>
+            </div>
+            <div class="arch-node node-infra">
+                <span class="node-icon">🚀</span>
+                <span class="node-label">WhiteNoise</span>
+                <span class="node-tech">Static Assets CDN</span>
+            </div>
+        </div>
+    </div>
+</section>
+
+<hr class="sd-divider">
+
+<!-- ════════════════════════════════════════════
+     2. DATA FLOW PIPELINE
+     ════════════════════════════════════════════ -->
+<section class="mb-5 fade-up">
+    <div class="sd-section-title">
+        <span class="icon-box" style="background: rgba(168,85,247,0.15); color: #c084fc;">🔄</span>
+        RAG Data Flow Pipeline
+    </div>
+    <p class="text-muted mb-3" style="font-size: 0.9rem;">End-to-end pipeline from PDF upload to AI-generated answer delivery.</p>
+
+    <div class="flow-pipeline">
+        <div class="flow-step">
+            <span class="step-num">1</span>
+            <span class="step-icon">📤</span>
+            <span class="step-title">PDF Upload</span>
+            <span class="step-desc">User uploads via browser or REST API</span>
+        </div>
+        <span class="flow-arrow"><i class="bi bi-arrow-right"></i></span>
+        <div class="flow-step">
+            <span class="step-num">2</span>
+            <span class="step-icon">📄</span>
+            <span class="step-title">Text Extract</span>
+            <span class="step-desc">PyPDF2 + OCR fallback (Tesseract)</span>
+        </div>
+        <span class="flow-arrow"><i class="bi bi-arrow-right"></i></span>
+        <div class="flow-step">
+            <span class="step-num">3</span>
+            <span class="step-icon">✂️</span>
+            <span class="step-title">Chunking</span>
+            <span class="step-desc">500-word segments, 50-word overlap</span>
+        </div>
+        <span class="flow-arrow"><i class="bi bi-arrow-right"></i></span>
+        <div class="flow-step">
+            <span class="step-num">4</span>
+            <span class="step-icon">🧮</span>
+            <span class="step-title">Vectorize</span>
+            <span class="step-desc">TF-IDF + FAISS Index build</span>
+        </div>
+        <span class="flow-arrow"><i class="bi bi-arrow-right"></i></span>
+        <div class="flow-step">
+            <span class="step-num">5</span>
+            <span class="step-icon">💬</span>
+            <span class="step-title">User Query</span>
+            <span class="step-desc">Natural language question</span>
+        </div>
+        <span class="flow-arrow"><i class="bi bi-arrow-right"></i></span>
+        <div class="flow-step">
+            <span class="step-num">6</span>
+            <span class="step-icon">🔎</span>
+            <span class="step-title">Retrieval</span>
+            <span class="step-desc">FAISS cosine similarity + phrase boost</span>
+        </div>
+        <span class="flow-arrow"><i class="bi bi-arrow-right"></i></span>
+        <div class="flow-step">
+            <span class="step-num">7</span>
+            <span class="step-icon">🧠</span>
+            <span class="step-title">LLM Generate</span>
+            <span class="step-desc">Qwen3 → Gemini → Local Synth</span>
+        </div>
+        <span class="flow-arrow"><i class="bi bi-arrow-right"></i></span>
+        <div class="flow-step">
+            <span class="step-num">8</span>
+            <span class="step-icon">✅</span>
+            <span class="step-title">Response</span>
+            <span class="step-desc">Structured Markdown answer</span>
+        </div>
+    </div>
+</section>
+
+<hr class="sd-divider">
+
+<!-- ════════════════════════════════════════════
+     3. DATABASE SCHEMA (ER DIAGRAM)
+     ════════════════════════════════════════════ -->
+<section class="mb-5 fade-up">
+    <div class="sd-section-title">
+        <span class="icon-box" style="background: rgba(34,197,94,0.15); color: #4ade80;">🗄️</span>
+        Database Schema & Entity Relationships
+    </div>
+
+    <div class="row g-3 align-items-start">
+        <!-- User -->
+        <div class="col-md-6 col-lg-3">
+            <div class="er-card">
+                <div class="er-card-header" style="background: rgba(56,189,248,0.1); color: #38bdf8;">
+                    <i class="bi bi-person-fill me-1"></i> User
+                </div>
+                <div class="er-card-body">
+                    <div class="er-field"><span class="er-key er-pk">PK</span> <span class="er-field-name">id</span> <span class="er-field-type">int</span></div>
+                    <div class="er-field"><span class="er-field-name">username</span> <span class="er-field-type">varchar(150)</span></div>
+                    <div class="er-field"><span class="er-field-name">email</span> <span class="er-field-type">varchar(254)</span></div>
+                    <div class="er-field"><span class="er-field-name">password</span> <span class="er-field-type">hash</span></div>
+                    <div class="er-field"><span class="er-field-name">date_joined</span> <span class="er-field-type">datetime</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Document -->
+        <div class="col-md-6 col-lg-3">
+            <div class="er-card">
+                <div class="er-card-header" style="background: rgba(99,102,241,0.1); color: #818cf8;">
+                    <i class="bi bi-file-earmark-pdf-fill me-1"></i> Document
+                </div>
+                <div class="er-card-body">
+                    <div class="er-field"><span class="er-key er-pk">PK</span> <span class="er-field-name">id</span> <span class="er-field-type">int</span></div>
+                    <div class="er-field"><span class="er-key er-fk">FK</span> <span class="er-field-name">user_id</span> <span class="er-field-type">→ User</span></div>
+                    <div class="er-field"><span class="er-field-name">title</span> <span class="er-field-type">varchar(200)</span></div>
+                    <div class="er-field"><span class="er-field-name">pdf_file</span> <span class="er-field-type">file</span></div>
+                    <div class="er-field"><span class="er-field-name">full_text</span> <span class="er-field-type">text</span></div>
+                    <div class="er-field"><span class="er-field-name">summary</span> <span class="er-field-type">text</span></div>
+                    <div class="er-field"><span class="er-field-name">total_chunks</span> <span class="er-field-type">int</span></div>
+                    <div class="er-field"><span class="er-field-name">is_ocr_processed</span> <span class="er-field-type">bool</span></div>
+                    <div class="er-field"><span class="er-field-name">uploaded_at</span> <span class="er-field-type">datetime</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DocumentChunk -->
+        <div class="col-md-6 col-lg-3">
+            <div class="er-card">
+                <div class="er-card-header" style="background: rgba(168,85,247,0.1); color: #c084fc;">
+                    <i class="bi bi-puzzle-fill me-1"></i> DocumentChunk
+                </div>
+                <div class="er-card-body">
+                    <div class="er-field"><span class="er-key er-pk">PK</span> <span class="er-field-name">id</span> <span class="er-field-type">int</span></div>
+                    <div class="er-field"><span class="er-key er-fk">FK</span> <span class="er-field-name">document_id</span> <span class="er-field-type">→ Document</span></div>
+                    <div class="er-field"><span class="er-field-name">chunk_index</span> <span class="er-field-type">int</span></div>
+                    <div class="er-field"><span class="er-field-name">chunk_text</span> <span class="er-field-type">text</span></div>
+                    <div class="er-field"><span class="er-field-name">tfidf_vector</span> <span class="er-field-type">json</span></div>
+                    <div class="er-field"><span class="er-field-name">word_count</span> <span class="er-field-type">int</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Conversation + ChatMessage -->
+        <div class="col-md-6 col-lg-3">
+            <div class="er-card mb-3">
+                <div class="er-card-header" style="background: rgba(245,158,11,0.1); color: #fbbf24;">
+                    <i class="bi bi-chat-dots-fill me-1"></i> Conversation
+                </div>
+                <div class="er-card-body">
+                    <div class="er-field"><span class="er-key er-pk">PK</span> <span class="er-field-name">id</span> <span class="er-field-type">int</span></div>
+                    <div class="er-field"><span class="er-key er-fk">FK</span> <span class="er-field-name">user_id</span> <span class="er-field-type">→ User</span></div>
+                    <div class="er-field"><span class="er-key er-fk">FK</span> <span class="er-field-name">document_id</span> <span class="er-field-type">→ Document</span></div>
+                    <div class="er-field"><span class="er-field-name">title</span> <span class="er-field-type">varchar(200)</span></div>
+                </div>
+            </div>
+            <div class="er-card">
+                <div class="er-card-header" style="background: rgba(239,68,68,0.1); color: #f87171;">
+                    <i class="bi bi-chat-left-text-fill me-1"></i> ChatMessage
+                </div>
+                <div class="er-card-body">
+                    <div class="er-field"><span class="er-key er-pk">PK</span> <span class="er-field-name">id</span> <span class="er-field-type">int</span></div>
+                    <div class="er-field"><span class="er-key er-fk">FK</span> <span class="er-field-name">conversation_id</span> <span class="er-field-type">→ Conv.</span></div>
+                    <div class="er-field"><span class="er-field-name">role</span> <span class="er-field-type">enum</span></div>
+                    <div class="er-field"><span class="er-field-name">content</span> <span class="er-field-type">text</span></div>
+                    <div class="er-field"><span class="er-field-name">latency_ms</span> <span class="er-field-type">int</span></div>
+                    <div class="er-field"><span class="er-field-name">provider_used</span> <span class="er-field-type">varchar(50)</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Relationship summary -->
+    <div class="glass-card mt-3 p-3">
+        <div class="small text-muted">
+            <strong class="gradient-text">Entity Relationships:</strong> &nbsp;
+            <code>User</code> ──<i class="bi bi-arrow-right"></i> 1:N ──<i class="bi bi-arrow-right"></i> <code>Document</code> ──<i class="bi bi-arrow-right"></i> 1:N ──<i class="bi bi-arrow-right"></i> <code>DocumentChunk</code> &nbsp;|&nbsp;
+            <code>User</code> ──<i class="bi bi-arrow-right"></i> 1:N ──<i class="bi bi-arrow-right"></i> <code>Conversation</code> ──<i class="bi bi-arrow-right"></i> 1:N ──<i class="bi bi-arrow-right"></i> <code>ChatMessage</code> &nbsp;|&nbsp;
+            <code>Document</code> ──<i class="bi bi-arrow-right"></i> 1:N ──<i class="bi bi-arrow-right"></i> <code>Conversation</code>
+        </div>
+    </div>
+</section>
+
+<hr class="sd-divider">
+
+<!-- ════════════════════════════════════════════
+     4. REST API ARCHITECTURE
+     ════════════════════════════════════════════ -->
+<section class="mb-5 fade-up">
+    <div class="sd-section-title">
+        <span class="icon-box" style="background: rgba(56,189,248,0.15); color: #38bdf8;">🔌</span>
+        REST API Architecture (DRF Endpoints)
+    </div>
+
+    <div class="glass-card p-0" style="overflow: hidden;">
+        <table class="api-table">
+            <thead>
+                <tr>
+                    <th>Method</th>
+                    <th>Endpoint</th>
+                    <th>Description</th>
+                    <th>Auth</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="method-badge method-get">GET</span></td>
+                    <td><code>/api/documents/</code></td>
+                    <td>List user's uploaded PDF documents</td>
+                    <td><i class="bi bi-lock-fill text-warning"></i> Session</td>
+                </tr>
+                <tr>
+                    <td><span class="method-badge method-post">POST</span></td>
+                    <td><code>/api/documents/</code></td>
+                    <td>Upload & index a new PDF document</td>
+                    <td><i class="bi bi-lock-fill text-warning"></i> Session</td>
+                </tr>
+                <tr>
+                    <td><span class="method-badge method-post">POST</span></td>
+                    <td><code>/api/documents/{id}/trigger_ocr/</code></td>
+                    <td>Run PyTesseract OCR on scanned PDF</td>
+                    <td><i class="bi bi-lock-fill text-warning"></i> Session</td>
+                </tr>
+                <tr>
+                    <td><span class="method-badge method-get">GET</span></td>
+                    <td><code>/api/conversations/</code></td>
+                    <td>List user's chat conversations</td>
+                    <td><i class="bi bi-lock-fill text-warning"></i> Session</td>
+                </tr>
+                <tr>
+                    <td><span class="method-badge method-post">POST</span></td>
+                    <td><code>/api/search/</code></td>
+                    <td>FAISS semantic search + LLM answer generation</td>
+                    <td><i class="bi bi-lock-fill text-warning"></i> Session</td>
+                </tr>
+                <tr>
+                    <td><span class="method-badge method-get">GET</span></td>
+                    <td><code>/api/analytics/</code></td>
+                    <td>Admin analytics dashboard metrics</td>
+                    <td><i class="bi bi-shield-fill text-danger"></i> Admin</td>
+                </tr>
+                <tr>
+                    <td><span class="method-badge method-delete">DELETE</span></td>
+                    <td><code>/api/documents/{id}/</code></td>
+                    <td>Delete document + cascade chunks & chats</td>
+                    <td><i class="bi bi-lock-fill text-warning"></i> Session</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<hr class="sd-divider">
+
+<!-- ════════════════════════════════════════════
+     5. MULTI-PROVIDER LLM FAILOVER STRATEGY
+     ════════════════════════════════════════════ -->
+<section class="mb-5 fade-up">
+    <div class="sd-section-title">
+        <span class="icon-box" style="background: rgba(245,158,11,0.15); color: #fbbf24;">🧠</span>
+        Multi-Provider LLM Failover Architecture
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-4">
+            <div class="glass-card text-center h-100" style="border-color: rgba(34,197,94,0.25);">
+                <div style="font-size: 2.2rem;">🥇</div>
+                <h6 class="fw-bold mt-2" style="color: #4ade80;">Priority 1 — Qwen3-32B</h6>
+                <p class="small text-muted mb-2">HuggingFace Router API</p>
+                <div class="small">
+                    <span class="badge" style="background: rgba(34,197,94,0.15); color: #4ade80;">Max 1024 tokens</span>
+                    <span class="badge" style="background: rgba(34,197,94,0.15); color: #4ade80;">Temp 0.2</span>
+                </div>
+                <p class="small text-muted mt-2 mb-0">High-quality reasoning with 32B parameter model. Fastest provider for structured CS explanations.</p>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="glass-card text-center h-100" style="border-color: rgba(56,189,248,0.25);">
+                <div style="font-size: 2.2rem;">🥈</div>
+                <h6 class="fw-bold mt-2" style="color: #38bdf8;">Priority 2 — Gemini API</h6>
+                <p class="small text-muted mb-2">3-model cascade failover</p>
+                <div class="small">
+                    <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8;">gemini-2.5-flash</span>
+                    <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8;">2.0-flash</span>
+                    <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8;">2.0-flash-lite</span>
+                </div>
+                <p class="small text-muted mt-2 mb-0">Google Gemini with automatic model fallback on 429 rate-limit errors.</p>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="glass-card text-center h-100" style="border-color: rgba(168,85,247,0.25);">
+                <div style="font-size: 2.2rem;">🥉</div>
+                <h6 class="fw-bold mt-2" style="color: #c084fc;">Priority 3 — Local Synthesis</h6>
+                <p class="small text-muted mb-2">Zero-latency offline engine</p>
+                <div class="small">
+                    <span class="badge" style="background: rgba(168,85,247,0.15); color: #c084fc;">NLP Regex</span>
+                    <span class="badge" style="background: rgba(168,85,247,0.15); color: #c084fc;">TF-IDF Rank</span>
+                </div>
+                <p class="small text-muted mt-2 mb-0">Structured Markdown synthesis from chunks. Textbook-quality output with zero external API dependency.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<hr class="sd-divider">
+
+<!-- ════════════════════════════════════════════
+     6. TECHNOLOGY STACK GRID
+     ════════════════════════════════════════════ -->
+<section class="mb-5 fade-up">
+    <div class="sd-section-title">
+        <span class="icon-box" style="background: rgba(239,68,68,0.15); color: #f87171;">🛠️</span>
+        Complete Technology Stack
+    </div>
+
+    <div class="row g-3">
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="tech-card"><span class="tech-icon">🐍</span><span class="tech-name">Django 6.x</span><span class="tech-role">Web Framework</span></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="tech-card"><span class="tech-icon">🔌</span><span class="tech-name">DRF</span><span class="tech-role">REST API Layer</span></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="tech-card"><span class="tech-icon">⚛️</span><span class="tech-name">React</span><span class="tech-role">Frontend (Planned)</span></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="tech-card"><span class="tech-icon">🐘</span><span class="tech-name">PostgreSQL</span><span class="tech-role">RDBMS Engine</span></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="tech-card"><span class="tech-icon">🔴</span><span class="tech-name">Redis</span><span class="tech-role">Cache & Broker</span></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="tech-card"><span class="tech-icon">⚙️</span><span class="tech-name">Celery</span><span class="tech-role">Async Workers</span></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="tech-card"><span class="tech-icon">🐳</span><span class="tech-name">Docker</span><span class="tech-role">Containerization</span></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="tech-card"><span class="tech-icon">🔎</span><span class="tech-name">FAISS</span><span class="tech-role">Vector Search</span></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="tech-card"><span class="tech-icon">🔗</span><span class="tech-name">LangChain</span><span class="tech-role">LLM Orchestration</span></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="tech-card"><span class="tech-icon">🧠</span><span class="tech-name">Qwen3-32B</span><span class="tech-role">Primary LLM</span></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="tech-card"><span class="tech-icon">📝</span><span class="tech-name">PyTesseract</span><span class="tech-role">OCR Engine</span></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="tech-card"><span class="tech-icon">📊</span><span class="tech-name">scikit-learn</span><span class="tech-role">TF-IDF Vectors</span></div>
+        </div>
+    </div>
+</section>
+
+<hr class="sd-divider">
+
+<!-- ════════════════════════════════════════════
+     7. DEPLOYMENT & DOCKER ARCHITECTURE
+     ════════════════════════════════════════════ -->
+<section class="mb-5 fade-up">
+    <div class="sd-section-title">
+        <span class="icon-box" style="background: rgba(34,197,94,0.15); color: #4ade80;">🐳</span>
+        Docker Deployment Architecture
+    </div>
+
+    <div class="arch-diagram">
+        <div class="text-center mb-3"><span class="layer-label layer-infra">docker-compose.yml — 4 Service Containers</span></div>
+        <div class="arch-row">
+            <div class="arch-node node-infra">
+                <span class="node-icon">🌐</span>
+                <span class="node-label">web</span>
+                <span class="node-tech">Django + Gunicorn :8000</span>
+            </div>
+            <div class="arch-node node-storage">
+                <span class="node-icon">🐘</span>
+                <span class="node-label">db</span>
+                <span class="node-tech">PostgreSQL 15 :5432</span>
+            </div>
+            <div class="arch-node node-ai">
+                <span class="node-icon">🔴</span>
+                <span class="node-label">redis</span>
+                <span class="node-tech">Redis 7 Alpine :6379</span>
+            </div>
+            <div class="arch-node node-client">
+                <span class="node-icon">⚙️</span>
+                <span class="node-label">celery</span>
+                <span class="node-tech">Celery Worker</span>
+            </div>
+        </div>
+        <div class="text-center mt-3">
+            <small class="text-muted">
+                <code>docker-compose up -d</code> → Starts all 4 containers with volume mounts, env injection, and service dependency ordering.
+            </small>
+        </div>
+    </div>
+</section>
+
+<hr class="sd-divider">
+
+<!-- ════════════════════════════════════════════
+     8. SCALABILITY & PERFORMANCE METRICS
+     ════════════════════════════════════════════ -->
+<section class="mb-5 fade-up">
+    <div class="sd-section-title">
+        <span class="icon-box" style="background: rgba(99,102,241,0.15); color: #818cf8;">📈</span>
+        Scalability & Design Decisions
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="scale-metric">
+                <span class="metric-value gradient-text">O(1)</span>
+                <span class="metric-label">FAISS Lookup Time</span>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="scale-metric">
+                <span class="metric-value" style="color: #4ade80;">3-Model</span>
+                <span class="metric-label">LLM Failover Chain</span>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="scale-metric">
+                <span class="metric-value" style="color: #38bdf8;">Async</span>
+                <span class="metric-label">Celery Task Processing</span>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="scale-metric">
+                <span class="metric-value" style="color: #fbbf24;">N+1 Free</span>
+                <span class="metric-label">ORM Query Pattern</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="glass-card">
+        <h6 class="fw-bold gradient-text mb-3">Key Architectural Decisions</h6>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <ul class="list-unstyled mb-0 small">
+                    <li class="mb-2"><i class="bi bi-check-circle-fill text-success me-2"></i><strong>Chunking Overlap (50 words):</strong> Prevents information loss at segment boundaries during TF-IDF vectorization.</li>
+                    <li class="mb-2"><i class="bi bi-check-circle-fill text-success me-2"></i><strong>FAISS FlatIP Index:</strong> Inner-product similarity on L2-normalized vectors provides exact cosine retrieval at scale.</li>
+                    <li class="mb-2"><i class="bi bi-check-circle-fill text-success me-2"></i><strong>Phrase Boosting (+3.0):</strong> Exact query phrase match in a chunk boosts its retrieval score, improving precision for follow-up questions.</li>
+                    <li class="mb-0"><i class="bi bi-check-circle-fill text-success me-2"></i><strong>Context-Aware Follow-Up:</strong> Short follow-up queries are concatenated with the previous user question for better retrieval.</li>
+                </ul>
+            </div>
+            <div class="col-md-6">
+                <ul class="list-unstyled mb-0 small">
+                    <li class="mb-2"><i class="bi bi-check-circle-fill text-success me-2"></i><strong>Multi-DB Support:</strong> <code>DB_ENGINE=postgres|sqlite</code> env switch. SQLite for dev, PostgreSQL for production — zero code change.</li>
+                    <li class="mb-2"><i class="bi bi-check-circle-fill text-success me-2"></i><strong>Celery + Redis Async:</strong> Heavy OCR & vectorization offloaded to background workers, keeping HTTP response fast (&lt;200ms).</li>
+                    <li class="mb-2"><i class="bi bi-check-circle-fill text-success me-2"></i><strong>WhiteNoise Static CDN:</strong> Compressed, hashed static files served directly from Django without external Nginx dependency.</li>
+                    <li class="mb-0"><i class="bi bi-check-circle-fill text-success me-2"></i><strong>Graceful LLM Degradation:</strong> If all external APIs are down, the local synthesis engine guarantees response quality with zero latency.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</section>
+
+<hr class="sd-divider">
+
+<!-- ════════════════════════════════════════════
+     9. SECURITY CONSIDERATIONS
+     ════════════════════════════════════════════ -->
+<section class="mb-5 fade-up">
+    <div class="sd-section-title">
+        <span class="icon-box" style="background: rgba(239,68,68,0.15); color: #f87171;">🔐</span>
+        Security & Access Control
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-4">
+            <div class="glass-card h-100">
+                <h6 class="fw-bold" style="color: #f87171;"><i class="bi bi-shield-lock-fill me-1"></i> Authentication</h6>
+                <ul class="small text-muted list-unstyled mb-0">
+                    <li class="mb-1">• Django Session-based auth</li>
+                    <li class="mb-1">• PBKDF2 password hashing</li>
+                    <li class="mb-1">• CSRF token protection on all forms</li>
+                    <li>• <code>@login_required</code> on all protected views</li>
+                </ul>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="glass-card h-100">
+                <h6 class="fw-bold" style="color: #fbbf24;"><i class="bi bi-key-fill me-1"></i> Data Isolation</h6>
+                <ul class="small text-muted list-unstyled mb-0">
+                    <li class="mb-1">• Row-level user filtering on all querysets</li>
+                    <li class="mb-1">• <code>user=request.user</code> in every ORM query</li>
+                    <li class="mb-1">• No cross-user document or chat leakage</li>
+                    <li>• Admin-only analytics endpoint</li>
+                </ul>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="glass-card h-100">
+                <h6 class="fw-bold" style="color: #4ade80;"><i class="bi bi-file-lock2-fill me-1"></i> Secrets & Environment</h6>
+                <ul class="small text-muted list-unstyled mb-0">
+                    <li class="mb-1">• <code>.env</code> file for all API keys</li>
+                    <li class="mb-1">• <code>SECRET_KEY</code> from environment variable</li>
+                    <li class="mb-1">• <code>DEBUG=False</code> in production</li>
+                    <li>• <code>.gitignore</code> excludes <code>.env</code>, <code>db.sqlite3</code></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</section>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Fade-up animation on scroll
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('visible');
+            }
+        });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.fade-up').forEach(el => observer.observe(el));
+</script>
+{% endblock %}

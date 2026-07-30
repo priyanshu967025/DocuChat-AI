@@ -27,6 +27,7 @@ urlpatterns = [
     # Active Learning & Analytics
     path('chat/<int:doc_id>/quiz/', views.generate_quiz_view, name='generate_quiz'),
     path('analytics/', views.analytics_dashboard_view, name='analytics_dashboard'),
+    path('system-design/', views.system_design_view, name='system_design'),
 
     # Conversation management
     path('chat/<int:doc_id>/new/', views.new_conversation, name='new_conversation'),
